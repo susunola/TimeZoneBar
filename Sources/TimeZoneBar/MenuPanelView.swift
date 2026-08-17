@@ -94,6 +94,17 @@ struct ZoneRowView: View {
                     HStack(spacing: 4) {
                         Text(zone.region.isEmpty ? zone.label : "\(zone.label) · \(zone.region)")
                             .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                        if store.isDST(in: zone.id) {
+                            Text("DST")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.orange)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.orange.opacity(0.15))
+                                )
+                        }
                         if isCurrent {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 10))
@@ -106,8 +117,14 @@ struct ZoneRowView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(store.timeString(for: zone))
-                        .font(.system(size: 15, weight: .medium, design: .monospaced))
+                    HStack(spacing: 4) {
+                        // 昼夜指示
+                        Image(systemName: store.isDaytime(in: zone.id) ? "sun.max.fill" : "moon.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(store.isDaytime(in: zone.id) ? .orange : .indigo)
+                        Text(store.timeString(for: zone))
+                            .font(.system(size: 15, weight: .medium, design: .monospaced))
+                    }
                     Text(dayLabel)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)

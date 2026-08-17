@@ -127,6 +127,20 @@ struct SettingsView: View {
             Divider()
                 .padding(.top, 8)
 
+            Text("显示设置")
+                .font(.headline)
+
+            Toggle("菜单栏显示日期（月/日）", isOn: $store.showDateInMenuBar)
+
+            Picker("时间格式", selection: $store.use24Hour) {
+                Text("24 小时制").tag(true)
+                Text("12 小时制").tag(false)
+            }
+            .pickerStyle(.segmented)
+
+            Divider()
+                .padding(.top, 8)
+
             // 软件更新区
             HStack(spacing: 10) {
                 Image(systemName: "arrow.down.circle")

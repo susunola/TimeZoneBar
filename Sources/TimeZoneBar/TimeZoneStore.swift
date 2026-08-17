@@ -24,11 +24,21 @@ final class TimeZoneStore: ObservableObject {
     @Published var detected: DetectedZone?
     @Published var isDetecting = false
 
+    // 显示偏好（持久化）
+    @Published var showDateInMenuBar: Bool {
+        didSet { defaults.set(showDateInMenuBar, forKey: Self.showDateKey) }
+    }
+    @Published var use24Hour: Bool {
+        didSet { defaults.set(use24Hour, forKey: Self.use24HourKey) }
+    }
+
     /// 由 AppDelegate 注入的回调：打开设置窗口
     var openSettings: () -> Void = {}
 
     private let defaults = UserDefaults.standard
     private static let zonesKey = "zones.v1"
+    private static let showDateKey = "pref.showDate"
+    private static let use24HourKey = "pref.use24Hour"
 
     static let defaultZones: [ZoneEntry] = [
         ZoneEntry(id: "Asia/Shanghai", label: "北京", region: "中国", color: "#007AFF"),
@@ -49,24 +59,48 @@ final class TimeZoneStore: ObservableObject {
         }
         currentZoneIdentifier = TimeZone.current.identifier
         autoTimezoneEnabled = Self.readAutoTimezoneFlag()
+        showDateInMenuBar = defaults.object(forKey: Self.showDateKey) as? Bool ?? false
+        use24Hour = defaults.object(forKey: Self.use24HourKey) as? Bool ?? true
     }
 
     // MARK: - 显示辅助
 
     var menuBarText: String {
-        "\(timeString(for: currentZoneIdentifier)) \(Self.offsetString(for: currentZoneIdentifier))"
+        let time = timeString(for: currentZoneIdentifier)
+        let offset = Self.offsetString(for: currentZoneIdentifier)
+        if showDateInMenuBar {
+            let f = DateFormatter()
+            f.dateFormat = "M/d"
+            return "\(f.string(from: now)) \(time) \(offset)"
+        }
+        return "\(time) \(offset)"
     }
 
     func timeString(for identifier: String) -> String {
         guard let tz = TimeZone(identifier: identifier) else { return "--:--" }
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.dateFormat = use24Hour ? "HH:mm" : "h:mm a"
         f.timeZone = tz
         return f.string(from: now)
     }
 
     func timeString(for zone: ZoneEntry) -> String {
         timeString(for: zone.id)
+    }
+
+    /// 该时区当前是否为白天（6:00-18:00，简化的昼夜判断）
+    func isDaytime(in identifier: String) -> Bool {
+        guard let tz = TimeZone(identifier: identifier) else { return true }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = tz
+        let hour = cal.component(.hour, from: now)
+        return hour >= 6 && hour < 18
+    }
+
+    /// 该时区当前是否处于夏令时
+    func isDST(in identifier: String) -> Bool {
+        guard let tz = TimeZone(identifier: identifier) else { return false }
+        return tz.isDaylightSavingTime(for: now)
     }
 
     static func offsetString(for identifier: String) -> String {
