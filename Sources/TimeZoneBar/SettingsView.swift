@@ -3,10 +3,24 @@ import ServiceManagement
 
 struct SettingsView: View {
     @EnvironmentObject var store: TimeZoneStore
+    @StateObject private var updater = Updater()
     @State private var addSelection = "Asia/Shanghai"
     @State private var launchAtLogin = false
 
     private var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
+    private var updateStatusText: String {
+        switch updater.state {
+        case .idle: return "检查 GitHub 上的新版本"
+        case .checking: return "正在检查…"
+        case .available(let v, _): return "发现新版本 v\(v)，点击右侧按钮原地升级"
+        case .downloading: return "正在下载并安装，完成后自动重启…"
+        case .upToDate: return "当前已是最新版本"
+        case .error(let msg): return msg
+        }
+    }
+
+    private var updateButtonTitle: String { updater.state.buttonTitle }
 
     static let commonZones: [(id: String, label: String, region: String)] = [
         ("Asia/Shanghai", "北京 / 上海", "中国"),
@@ -109,6 +123,38 @@ struct SettingsView: View {
                 store.zones = TimeZoneStore.defaultZones
                 store.save()
             }
+
+            Divider()
+                .padding(.top, 8)
+
+            // 软件更新区
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 13))
+                    .foregroundColor(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("软件更新")
+                        .font(.system(size: 13, weight: .medium))
+                    Text(updateStatusText)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(updateButtonTitle) {
+                    switch updater.state {
+                    case .available(_, let release):
+                        Task { await updater.update(release: release) }
+                    default:
+                        Task { await updater.check() }
+                    }
+                }
+                .disabled(updater.isBusy)
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.blue.opacity(0.06))
+            )
 
             Divider()
                 .padding(.top, 8)
