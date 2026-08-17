@@ -219,25 +219,65 @@ struct SettingsView: View {
     @State private var showUninstallConfirm = false
     @State private var isUninstalling = false
 
-    /// Uninstall: clear local data -> delete the bundle with admin rights -> quit
+    /// Uninstall: clear all local data, deregister login item, delete the bundle, then quit
     private func uninstall() {
         guard !isUninstalling else { return }
         isUninstalling = true
-        // 1. Clear preferences and cached data
-        if let bundleID = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleID)
-        }
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.atom.tzbar"
+
+        // 1. UserDefaults (preferences)
+        UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        // Also remove the plist file directly in case it lingers
+        let prefsPlist = "\(home)/Library/Preferences/\(bundleID).plist"
+        try? fm.removeItem(atPath: prefsPlist)
+
+        // 2. Application Support
+        if let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("TimeZoneBar", isDirectory: true) {
-            try? FileManager.default.removeItem(at: appSupport)
+            try? fm.removeItem(at: appSupport)
         }
-        // 2. Deregister the login item
+
+        // 3. Caches
+        let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        try? fm.removeItem(at: cachesDir.appendingPathComponent(bundleID))
+        try? fm.removeItem(at: cachesDir.appendingPathComponent("TimeZoneBar"))
+
+        // 4. Saved Application State (window restore)
+        let savedState = "\(home)/Library/Saved Application State/\(bundleID).savedState"
+        try? fm.removeItem(atPath: savedState)
+
+        // 5. HTTPStorages (URLSession cookies/cache)
+        let httpStorages = "\(home)/Library/HTTPStorages/\(bundleID)"
+        try? fm.removeItem(atPath: httpStorages)
+
+        // 6. Logs
+        try? fm.removeItem(atPath: "\(home)/Library/Logs/TimeZoneBar")
+
+        // 7. Containers (sandbox, if any)
+        try? fm.removeItem(atPath: "\(home)/Library/Containers/\(bundleID)")
+
+        // 8. Temporary files (update leftovers)
+        let tmpBase = NSTemporaryDirectory()
+        if let tmpItems = try? fm.contentsOfDirectory(atPath: tmpBase) {
+            for item in tmpItems where item.hasPrefix("tzbar-update-") {
+                try? fm.removeItem(atPath: "\(tmpBase)/\(item)")
+            }
+        }
+
+        // 9. Deregister the login item
         if isBundled {
             try? SMAppService.mainApp.unregister()
         }
-        // 3. Delete the app bundle (admin rights, path escaped with quoted form)
+
+        // 10. Delete the app bundle (admin rights)
+        //     Also kill Dock to clear Launchpad tile cache
         let appPath = Bundle.main.bundlePath
-        let script = "do shell script \"rm -rf \" & quoted form of \"\(appPath)\" with administrator privileges"
+        let script = """
+            do shell script "rm -rf " & quoted form of "\(appPath)" & " && killall Dock" with administrator privileges
+            """
         Task {
             do {
                 try await PrivilegedRunner.run(script: script)
