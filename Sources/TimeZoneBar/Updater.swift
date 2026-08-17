@@ -4,6 +4,7 @@ import CryptoKit
 
 struct GitHubRelease: Decodable {
     struct Asset: Decodable {
+        let id: Int
         let name: String
         let browser_download_url: String
     }
@@ -76,13 +77,20 @@ final class Updater: ObservableObject {
     /// 下载 → SHA256 校验 → 解压 → 管理员替换自身 → 重启
     func update(release: GitHubRelease) async {
         state = .downloading
-        guard let asset = release.assets.first(where: { $0.name.hasSuffix(".zip") }),
-              let url = URL(string: asset.browser_download_url) else {
+        guard let asset = release.assets.first(where: { $0.name.hasSuffix(".zip") }) else {
             state = .error("未找到安装包资源")
             return
         }
+        // 用 API 资产端点下载（browser_download_url 在部分情况下 404，API 端点稳定）
+        guard let url = URL(string: "https://api.github.com/repos/\(Self.repoOwner)/\(Self.repoName)/releases/assets/\(asset.id)") else {
+            state = .error("安装包地址无效")
+            return
+        }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            var req = URLRequest(url: url)
+            req.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+            req.timeoutInterval = 60
+            let (data, _) = try await URLSession.shared.data(for: req)
             // SHA256 校验（发布时写在 Release 正文的 SHA256: 行）
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             if let expected = sha256FromBody(release.body), expected.lowercased() != digest {
