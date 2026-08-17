@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""生成 TimeZoneBar 应用图标 AppIcon.icns（纯标准库，无第三方依赖）。
+"""Generate the TimeZoneBar app icon (AppIcon.icns) using only the standard library.
 
-图标设计：蓝色圆角方块 + 白色时钟（表盘、时针、分针、中心点）。
-渲染：SIZE=1024，每像素 2x2 超采样抗锯齿。
-用法：python3 make_icon.py [输出目录，默认 Resources]
+Design: blue rounded square with a white clock (dial, hour hand, minute hand, center dot).
+Rendering: SIZE=1024 with 2x2 supersampling for anti-aliasing.
+Usage: python3 make_icon.py [output directory, defaults to Resources]
 """
 import math
 import os
@@ -13,7 +13,7 @@ import sys
 import zlib
 
 SIZE = 1024
-R = 180                      # 圆角半径
+R = 180                      # Corner radius
 BLUE = (0, 122, 255, 255)
 WHITE = (255, 255, 255, 255)
 CLEAR = (0, 0, 0, 0)
@@ -47,13 +47,13 @@ def color_at(x, y):
     c = BLUE
     cx = cy = SIZE / 2
     d = math.hypot(x - cx, y - cy)
-    if 244 <= d <= 300:                    # 表盘描边
+    if 244 <= d <= 300:                    # Dial stroke
         c = WHITE
-    if dist_seg(x, y, cx, cy, cx, 240) <= 28:   # 分针
+    if dist_seg(x, y, cx, cy, cx, 240) <= 28:   # Minute hand
         c = WHITE
-    if dist_seg(x, y, cx, cy, 430, 300) <= 30:  # 时针
+    if dist_seg(x, y, cx, cy, 430, 300) <= 30:  # Hour hand
         c = WHITE
-    if d <= 42:                            # 中心点
+    if d <= 42:                            # Center dot
         c = WHITE
     return c
 
@@ -102,7 +102,7 @@ def main():
     out_dir = sys.argv[1] if len(sys.argv) > 1 else "Resources"
     os.makedirs(out_dir, exist_ok=True)
     master = os.path.join(out_dir, "icon_master.png")
-    print("渲染 1024x1024 主图…", flush=True)
+    print("Rendering the 1024x1024 master image…", flush=True)
     write_png(master, render())
 
     iconset = os.path.join(out_dir, "AppIcon.iconset")
@@ -120,7 +120,7 @@ def main():
                        check=True, capture_output=True)
     subprocess.run(["iconutil", "-c", "icns", iconset, "-o",
                     os.path.join(out_dir, "AppIcon.icns")], check=True)
-    print("完成:", os.path.join(out_dir, "AppIcon.icns"), flush=True)
+    print("Done:", os.path.join(out_dir, "AppIcon.icns"), flush=True)
 
 
 if __name__ == "__main__":

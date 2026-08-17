@@ -7,7 +7,7 @@ struct MenuPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("多时区时钟")
+                Text("World Clock")
                     .font(.headline)
                 Spacer()
                 if store.isSwitching {
@@ -44,7 +44,7 @@ struct MenuPanelView: View {
                 .padding(.vertical, 4)
 
             HStack(spacing: 16) {
-                Button("设置…") {
+                Button("Settings…") {
                     store.openSettings()
                 }
                 .buttonStyle(.plain)
@@ -53,7 +53,7 @@ struct MenuPanelView: View {
 
                 Spacer()
 
-                Button("退出 TimeZoneBar") {
+                Button("Quit TimeZoneBar") {
                     NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.plain)
@@ -76,9 +76,9 @@ struct ZoneRowView: View {
 
     private var dayLabel: String {
         switch dayDiff {
-        case -1: return "昨天 · UTC\(offset)"
-        case 1: return "明天 · UTC\(offset)"
-        default: return "今天 · UTC\(offset)"
+        case -1: return "Yesterday · UTC\(offset)"
+        case 1: return "Tomorrow · UTC\(offset)"
+        default: return "Today · UTC\(offset)"
         }
     }
 
@@ -118,7 +118,7 @@ struct ZoneRowView: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 1) {
                     HStack(spacing: 4) {
-                        // 昼夜指示
+                        // Day/night indicator
                         Image(systemName: store.isDaytime(in: zone.id) ? "sun.max.fill" : "moon.fill")
                             .font(.system(size: 10))
                             .foregroundColor(store.isDaytime(in: zone.id) ? .orange : .indigo)
@@ -155,7 +155,7 @@ struct DetectSection: View {
                     Image(systemName: store.isDetecting ? "arrow.triangle.2.circlepath" : "location")
                         .font(.system(size: 12))
                         .foregroundColor(.blue)
-                    Text(store.isDetecting ? "正在识别当前位置…" : "自动识别当前位置时区")
+                    Text(store.isDetecting ? "Detecting location…" : "Detect current location")
                         .font(.system(size: 13, weight: .medium))
                     Spacer()
                 }
@@ -178,7 +178,7 @@ struct DetectSection: View {
                     Text(d.city.isEmpty ? d.timezone : "\(d.city) · \(d.timezone)")
                         .font(.system(size: 12))
                     Spacer()
-                    Button("切换") {
+                    Button("Switch") {
                         store.confirmDetectedZone()
                     }
                     .buttonStyle(.borderedProminent)
@@ -199,14 +199,14 @@ struct AutoTimezoneWarning: View {
                 .font(.system(size: 12))
                 .foregroundColor(.orange)
             VStack(alignment: .leading, spacing: 1) {
-                Text("已开启「自动设置时区」")
+                Text("\"Set time zone automatically\" is on")
                     .font(.system(size: 12, weight: .medium))
-                Text("切换后可能被系统按定位改回")
+                Text("Manual switches may be reverted by macOS")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Button("去关闭") {
+            Button("Open Settings") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.datetime") {
                     NSWorkspace.shared.open(url)
                 }

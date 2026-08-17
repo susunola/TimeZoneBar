@@ -1,10 +1,10 @@
 import SwiftUI
 
 struct ZoneEntry: Identifiable, Codable, Hashable {
-    var id: String      // IANA 时区标识，如 Asia/Shanghai
-    var label: String   // 显示名，如 北京
-    var region: String  // 国家/地区，如 中国
-    var color: String   // 十六进制标记色
+    var id: String      // IANA identifier, e.g. Asia/Shanghai
+    var label: String   // Display name, e.g. Beijing
+    var region: String  // Country or region, e.g. China
+    var color: String   // Hex accent color
 }
 
 struct DetectedZone: Equatable {
@@ -24,7 +24,7 @@ final class TimeZoneStore: ObservableObject {
     @Published var detected: DetectedZone?
     @Published var isDetecting = false
 
-    // 显示偏好（持久化）
+    // Persisted display preferences
     @Published var showDateInMenuBar: Bool {
         didSet { defaults.set(showDateInMenuBar, forKey: Self.showDateKey) }
     }
@@ -32,7 +32,7 @@ final class TimeZoneStore: ObservableObject {
         didSet { defaults.set(use24Hour, forKey: Self.use24HourKey) }
     }
 
-    /// 由 AppDelegate 注入的回调：打开设置窗口
+    /// Injected by AppDelegate: opens the settings window
     var openSettings: () -> Void = {}
 
     private let defaults = UserDefaults.standard
@@ -41,12 +41,12 @@ final class TimeZoneStore: ObservableObject {
     private static let use24HourKey = "pref.use24Hour"
 
     static let defaultZones: [ZoneEntry] = [
-        ZoneEntry(id: "Asia/Shanghai", label: "北京", region: "中国", color: "#007AFF"),
-        ZoneEntry(id: "Asia/Bangkok", label: "曼谷", region: "泰国", color: "#64D2FF"),
-        ZoneEntry(id: "Asia/Jakarta", label: "雅加达", region: "印度尼西亚", color: "#5E5CE6"),
-        ZoneEntry(id: "Europe/London", label: "伦敦", region: "英国", color: "#FF9F0A"),
-        ZoneEntry(id: "America/New_York", label: "纽约", region: "美国", color: "#30D158"),
-        ZoneEntry(id: "Asia/Tokyo", label: "东京", region: "日本", color: "#BF5AF2")
+        ZoneEntry(id: "Asia/Shanghai", label: "Beijing", region: "China", color: "#007AFF"),
+        ZoneEntry(id: "Asia/Bangkok", label: "Bangkok", region: "Thailand", color: "#64D2FF"),
+        ZoneEntry(id: "Asia/Jakarta", label: "Jakarta", region: "Indonesia", color: "#5E5CE6"),
+        ZoneEntry(id: "Europe/London", label: "London", region: "United Kingdom", color: "#FF9F0A"),
+        ZoneEntry(id: "America/New_York", label: "New York", region: "United States", color: "#30D158"),
+        ZoneEntry(id: "Asia/Tokyo", label: "Tokyo", region: "Japan", color: "#BF5AF2")
     ]
 
     init() {
@@ -63,7 +63,7 @@ final class TimeZoneStore: ObservableObject {
         use24Hour = defaults.object(forKey: Self.use24HourKey) as? Bool ?? true
     }
 
-    // MARK: - 显示辅助
+    // MARK: - Display helpers
 
     var menuBarText: String {
         let time = timeString(for: currentZoneIdentifier)
@@ -88,7 +88,7 @@ final class TimeZoneStore: ObservableObject {
         timeString(for: zone.id)
     }
 
-    /// 该时区当前是否为白天（6:00-18:00，简化的昼夜判断）
+    /// Whether it is daytime there (06:00-18:00, simplified)
     func isDaytime(in identifier: String) -> Bool {
         guard let tz = TimeZone(identifier: identifier) else { return true }
         var cal = Calendar(identifier: .gregorian)
@@ -97,7 +97,7 @@ final class TimeZoneStore: ObservableObject {
         return hour >= 6 && hour < 18
     }
 
-    /// 该时区当前是否处于夏令时
+    /// Whether the zone currently observes daylight saving time
     func isDST(in identifier: String) -> Bool {
         guard let tz = TimeZone(identifier: identifier) else { return false }
         return tz.isDaylightSavingTime(for: now)
@@ -114,7 +114,7 @@ final class TimeZoneStore: ObservableObject {
         return String(format: "%@%d:%02d", sign, hours, minutes)
     }
 
-    /// 相对当前系统时区的日差：0 同一天，-1 昨天，+1 明天
+    /// Day offset vs the system zone: 0 same day, -1 yesterday, +1 tomorrow
     func dayDifference(for zone: ZoneEntry) -> Int {
         guard let tz = TimeZone(identifier: zone.id) else { return 0 }
         var here = Calendar(identifier: .gregorian)
@@ -126,7 +126,7 @@ final class TimeZoneStore: ObservableObject {
         return there.dateComponents([.day], from: hereDay, to: thereDay).day ?? 0
     }
 
-    // MARK: - 动作
+    // MARK: - Actions
 
     func switchTo(_ zone: ZoneEntry) {
         guard !isSwitching else { return }
@@ -181,7 +181,7 @@ final class TimeZoneStore: ObservableObject {
         }
     }
 
-    /// 读取「自动设置时区（基于定位）」开关：/Library/Preferences/com.apple.timezone.auto
+    /// Reads the "Set time zone automatically" flag from /Library/Preferences/com.apple.timezone.auto
     private static func readAutoTimezoneFlag() -> Bool {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")

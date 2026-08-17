@@ -28,12 +28,12 @@ final class Updater: ObservableObject {
 
         var buttonTitle: String {
             switch self {
-            case .idle: return "检查更新"
-            case .checking: return "检查中…"
-            case .available: return "更新"
-            case .downloading: return "下载中…"
-            case .upToDate: return "已是最新"
-            case .error: return "重试"
+            case .idle: return "Check for Updates"
+            case .checking: return "Checking…"
+            case .available: return "Update"
+            case .downloading: return "Downloading…"
+            case .upToDate: return "Up to Date"
+            case .error: return "Retry"
             }
         }
 
@@ -53,7 +53,7 @@ final class Updater: ObservableObject {
         URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest")!
     }
 
-    /// 检查 GitHub 最新 Release
+    /// Checks the latest GitHub release
     func check() async {
         state = .checking
         var req = URLRequest(url: Self.latestAPI)
@@ -70,20 +70,20 @@ final class Updater: ObservableObject {
                 state = .upToDate
             }
         } catch {
-            state = .error("检查更新失败：\(error.localizedDescription)")
+            state = .error("Update check failed: \(error.localizedDescription)")
         }
     }
 
-    /// 下载 → SHA256 校验 → 解压 → 管理员替换自身 → 重启
+    /// Download -> verify SHA256 -> unzip -> replace itself with admin rights -> relaunch
     func update(release: GitHubRelease) async {
         state = .downloading
         guard let asset = release.assets.first(where: { $0.name.hasSuffix(".zip") }) else {
-            state = .error("未找到安装包资源")
+            state = .error("No installer asset found in the release")
             return
         }
-        // 用 API 资产端点下载（browser_download_url 在部分情况下 404，API 端点稳定）
+        // Download via the API asset endpoint (browser_download_url can 404; this endpoint is reliable)
         guard let url = URL(string: "https://api.github.com/repos/\(Self.repoOwner)/\(Self.repoName)/releases/assets/\(asset.id)") else {
-            state = .error("安装包地址无效")
+            state = .error("Invalid installer URL")
             return
         }
         do {
@@ -91,13 +91,13 @@ final class Updater: ObservableObject {
             req.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
             req.timeoutInterval = 60
             let (data, _) = try await URLSession.shared.data(for: req)
-            // SHA256 校验（发布时写在 Release 正文的 SHA256: 行）
+            // Verify SHA256 (published on the "SHA256:" line of the release notes)
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             if let expected = sha256FromBody(release.body), expected.lowercased() != digest {
-                state = .error("安装包校验失败（SHA256 不匹配），已中止")
+                state = .error("Checksum mismatch (SHA256), installation aborted")
                 return
             }
-            // 解压到临时目录
+            // Unzip into a temporary directory
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("tzbar-update-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -112,18 +112,18 @@ final class Updater: ObservableObject {
 
             let newApp = tmp.appendingPathComponent("TimeZoneBar.app")
             guard FileManager.default.fileExists(atPath: newApp.path) else {
-                state = .error("安装包解压失败")
+                state = .error("Could not unzip the installer")
                 return
             }
-            // 管理员权限：删除旧 App → 拷贝新 App → 重新打开
+            // With admin rights: remove the old app, copy the new one, relaunch
             let script = """
             do shell script "rm -rf " & quoted form of "/Applications/TimeZoneBar.app" & " && cp -R " & quoted form of "\(newApp.path)" & " /Applications/TimeZoneBar.app && open " & quoted form of "/Applications/TimeZoneBar.app" with administrator privileges
             """
             try await PrivilegedRunner.run(script: script)
             state = .idle
-            NSApp.terminate(nil)   // 替换成功，退出旧实例，让新实例接管
+            NSApp.terminate(nil)   // Replaced successfully; quit so the new instance takes over
         } catch {
-            state = .error("更新失败：\(error.localizedDescription)")
+            state = .error("Update failed: \(error.localizedDescription)")
         }
     }
 

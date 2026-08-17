@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false   // 菜单栏 app：所有窗口关闭后保持运行
+        false   // Menu bar app: keep running after the last window closes
     }
 
     private func setupStatusItem() {
@@ -61,9 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                // Combine sink 闭包是 @Sendable，不能直接访问 MainActor 状态；
-                // Timer.publish(..., on: .main) 保证闭包在主线程触发，
-                // 用 MainActor.assumeIsolated 把编译器上下文带回到 MainActor。
+                // Combine sink closures are @Sendable and cannot touch MainActor state directly.
+                // Timer.publish(..., on: .main) guarantees main-thread delivery, so
+                // MainActor.assumeIsolated brings the compiler context back to the MainActor.
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.store.now = Date()
@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let host = NSHostingController(rootView: SettingsView().environmentObject(store))
         let window = NSWindow(contentViewController: host)
-        window.title = "TimeZoneBar 设置"
+        window.title = "TimeZoneBar Settings"
         window.setContentSize(NSSize(width: 480, height: 460))
         window.styleMask = [.titled, .closable]
         window.center()

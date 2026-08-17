@@ -11,11 +11,11 @@ struct SettingsView: View {
 
     private var updateStatusText: String {
         switch updater.state {
-        case .idle: return "检查 GitHub 上的新版本"
-        case .checking: return "正在检查…"
-        case .available(let v, _): return "发现新版本 v\(v)，点击右侧按钮原地升级"
-        case .downloading: return "正在下载并安装，完成后自动重启…"
-        case .upToDate: return "当前已是最新版本"
+        case .idle: return "Check GitHub for a new version"
+        case .checking: return "Checking…"
+        case .available(let v, _): return "Version \(v) is available — click Update to install it in place"
+        case .downloading: return "Downloading and installing, the app will relaunch…"
+        case .upToDate: return "You are running the latest version"
         case .error(let msg): return msg
         }
     }
@@ -23,42 +23,42 @@ struct SettingsView: View {
     private var updateButtonTitle: String { updater.state.buttonTitle }
 
     static let commonZones: [(id: String, label: String, region: String)] = [
-        ("Asia/Shanghai", "北京 / 上海", "中国"),
-        ("Asia/Bangkok", "曼谷", "泰国"),
-        ("Asia/Jakarta", "雅加达", "印度尼西亚"),
-        ("Asia/Hong_Kong", "中国香港", "中国"),
-        ("Asia/Taipei", "台北", "中国台湾"),
-        ("Asia/Tokyo", "东京", "日本"),
-        ("Asia/Seoul", "首尔", "韩国"),
-        ("Asia/Singapore", "新加坡", "新加坡"),
-        ("Asia/Dubai", "迪拜", "阿联酋"),
-        ("Asia/Kolkata", "新德里", "印度"),
-        ("Australia/Sydney", "悉尼", "澳大利亚"),
-        ("Pacific/Auckland", "奥克兰", "新西兰"),
-        ("Europe/London", "伦敦", "英国"),
-        ("Europe/Paris", "巴黎", "法国"),
-        ("Europe/Berlin", "柏林", "德国"),
-        ("America/New_York", "纽约", "美国"),
-        ("America/Los_Angeles", "洛杉矶", "美国"),
-        ("America/Chicago", "芝加哥", "美国"),
-        ("America/Sao_Paulo", "圣保罗", "巴西"),
-        ("UTC", "协调世界时", "")
+        ("Asia/Shanghai", "Beijing / Shanghai", "China"),
+        ("Asia/Bangkok", "Bangkok", "Thailand"),
+        ("Asia/Jakarta", "Jakarta", "Indonesia"),
+        ("Asia/Hong_Kong", "Hong Kong", "China"),
+        ("Asia/Taipei", "Taipei", "Taiwan, China"),
+        ("Asia/Tokyo", "Tokyo", "Japan"),
+        ("Asia/Seoul", "Seoul", "South Korea"),
+        ("Asia/Singapore", "Singapore", "Singapore"),
+        ("Asia/Dubai", "Dubai", "UAE"),
+        ("Asia/Kolkata", "New Delhi", "India"),
+        ("Australia/Sydney", "Sydney", "Australia"),
+        ("Pacific/Auckland", "Auckland", "New Zealand"),
+        ("Europe/London", "London", "United Kingdom"),
+        ("Europe/Paris", "Paris", "France"),
+        ("Europe/Berlin", "Berlin", "Germany"),
+        ("America/New_York", "New York", "United States"),
+        ("America/Los_Angeles", "Los Angeles", "United States"),
+        ("America/Chicago", "Chicago", "United States"),
+        ("America/Sao_Paulo", "São Paulo", "Brazil"),
+        ("UTC", "Coordinated Universal Time", "")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("TimeZoneBar 设置")
+            Text("TimeZoneBar Settings")
                 .font(.title2)
 
             if #available(macOS 26, *) {
-                Label("macOS 26：若菜单栏未显示图标，请到 系统设置 › 菜单栏 › 允许在菜单栏显示 中开启 TimeZoneBar",
+                Label("macOS 26: if the icon is missing, enable TimeZoneBar under System Settings › Menu Bar › Allow in the Menu Bar",
                       systemImage: "info.circle")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
 
             if isBundled {
-                Toggle("登录时自动启动", isOn: $launchAtLogin)
+                Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
                         do {
                             if newValue {
@@ -74,11 +74,11 @@ struct SettingsView: View {
 
             Divider()
 
-            Text("菜单栏时区列表")
+            Text("Time Zones")
                 .font(.headline)
 
             HStack(spacing: 8) {
-                Picker("添加时区", selection: $addSelection) {
+                Picker("Add a time zone", selection: $addSelection) {
                     ForEach(Self.commonZones, id: \.id) { item in
                         Text(item.region.isEmpty ? item.label : "\(item.label) · \(item.region)")
                             .tag(item.id)
@@ -86,7 +86,7 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
 
-                Button("添加") {
+                Button("Add") {
                     guard !store.zones.contains(where: { $0.id == addSelection }) else { return }
                     let item = Self.commonZones.first { $0.id == addSelection }
                     store.zones.append(ZoneEntry(id: addSelection,
@@ -107,11 +107,11 @@ struct SettingsView: View {
                         .font(.system(size: 13))
                     Spacer()
                     if zone.id == store.currentZoneIdentifier {
-                        Text("当前")
+                        Text("Current")
                             .font(.system(size: 11))
                             .foregroundColor(.blue)
                     }
-                    Button("移除") {
+                    Button("Remove") {
                         store.zones.removeAll { $0.id == zone.id }
                         store.save()
                     }
@@ -119,7 +119,7 @@ struct SettingsView: View {
                 }
             }
 
-            Button("恢复默认列表") {
+            Button("Restore Defaults") {
                 store.zones = TimeZoneStore.defaultZones
                 store.save()
             }
@@ -127,27 +127,27 @@ struct SettingsView: View {
             Divider()
                 .padding(.top, 8)
 
-            Text("显示设置")
+            Text("Display")
                 .font(.headline)
 
-            Toggle("菜单栏显示日期（月/日）", isOn: $store.showDateInMenuBar)
+            Toggle("Show date in the menu bar", isOn: $store.showDateInMenuBar)
 
-            Picker("时间格式", selection: $store.use24Hour) {
-                Text("24 小时制").tag(true)
-                Text("12 小时制").tag(false)
+            Picker("Time format", selection: $store.use24Hour) {
+                Text("24-hour").tag(true)
+                Text("12-hour").tag(false)
             }
             .pickerStyle(.segmented)
 
             Divider()
                 .padding(.top, 8)
 
-            // 软件更新区
+            // Software update
             HStack(spacing: 10) {
                 Image(systemName: "arrow.down.circle")
                     .font(.system(size: 13))
                     .foregroundColor(.blue)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("软件更新")
+                    Text("Software Update")
                         .font(.system(size: 13, weight: .medium))
                     Text(updateStatusText)
                         .font(.system(size: 11))
@@ -173,20 +173,20 @@ struct SettingsView: View {
             Divider()
                 .padding(.top, 8)
 
-            // 卸载区
+            // Uninstall
             HStack(spacing: 10) {
                 Image(systemName: "trash")
                     .font(.system(size: 13))
                     .foregroundColor(.red)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("卸载 TimeZoneBar")
+                    Text("Uninstall TimeZoneBar")
                         .font(.system(size: 13, weight: .medium))
-                    Text("删除 App 与全部本地数据（需管理员授权）")
+                    Text("Removes the app and all local data (requires authorization)")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button("卸载…", role: .destructive) {
+                Button("Uninstall…", role: .destructive) {
                     showUninstallConfirm = true
                 }
                 .disabled(isUninstalling)
@@ -196,15 +196,15 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.red.opacity(0.06))
             )
-            .confirmationDialog("确定卸载 TimeZoneBar？",
+            .confirmationDialog("Uninstall TimeZoneBar?",
                                 isPresented: $showUninstallConfirm,
                                 titleVisibility: .visible) {
-                Button("卸载并删除所有数据", role: .destructive) {
+                Button("Uninstall and Delete Data", role: .destructive) {
                     uninstall()
                 }
-                Button("取消", role: .cancel) {}
+                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("App 将被删除并立即退出。若 Launchpad 中仍显示图标，请重启 Dock（终端执行 killall Dock）或重新登录。")
+                Text("The app will be deleted and quit immediately. If the icon lingers in Launchpad, run killall Dock in Terminal or log out and back in.")
             }
         }
         .padding(24)
@@ -219,11 +219,11 @@ struct SettingsView: View {
     @State private var showUninstallConfirm = false
     @State private var isUninstalling = false
 
-    /// 卸载流程：清本地数据 → 管理员权限删除自身 bundle → 退出
+    /// Uninstall: clear local data -> delete the bundle with admin rights -> quit
     private func uninstall() {
         guard !isUninstalling else { return }
         isUninstalling = true
-        // 1. 清掉 App 自己的偏好与缓存数据
+        // 1. Clear preferences and cached data
         if let bundleID = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleID)
         }
@@ -231,11 +231,11 @@ struct SettingsView: View {
             .appendingPathComponent("TimeZoneBar", isDirectory: true) {
             try? FileManager.default.removeItem(at: appSupport)
         }
-        // 2. 关闭开机自启注册
+        // 2. Deregister the login item
         if isBundled {
             try? SMAppService.mainApp.unregister()
         }
-        // 3. 删除自身 App bundle（管理员授权，quoted form 安全转义路径）
+        // 3. Delete the app bundle (admin rights, path escaped with quoted form)
         let appPath = Bundle.main.bundlePath
         let script = "do shell script \"rm -rf \" & quoted form of \"\(appPath)\" with administrator privileges"
         Task {

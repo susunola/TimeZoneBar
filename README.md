@@ -1,50 +1,84 @@
-# TimeZoneBar · macOS 时区小工具
+# TimeZoneBar
 
-常驻菜单栏的多时区时钟 + 一键切换系统时区 + IP 自动识别当前位置时区。
+A lightweight macOS menu bar app for tracking multiple time zones and switching your system time zone in one click.
 
-## 功能
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)
+![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 
-- **多时区时钟**：菜单栏显示当前时区时间（`10:48 +8`），下拉面板同时展示北京 / 伦敦 / 纽约 / 东京等时区，自动标注「今天 / 昨天 / 明天」。
-- **一键切换系统时区**：点击面板中的任意时区，弹出系统授权框后立即切换整个 Mac 的时区。
-- **自动识别当前位置**：通过免费 IP 定位接口（ip-api.com 首选 / ipapi.co 备用）识别所在城市与时区，一键归位。
-- **防冲突提醒**：检测到系统「自动设置时区（基于定位）」开启时，面板会提示并一键跳转系统设置关闭，避免切换被系统改回。
-- **可定制列表**：设置页增删时区、恢复默认、开机自启。
+## Features
 
-## 安装
+- **Multi-zone clock** — See your local time in the menu bar, and multiple zones at a glance in the dropdown panel. Each row shows today / yesterday / tomorrow relative to your system time zone.
+- **Day/night indicator** — A sun or moon icon next to every zone tells you instantly whether it's daytime or the middle of the night over there.
+- **DST badge** — Zones currently observing daylight saving time are tagged so offsets never surprise you.
+- **One-click time zone switching** — Click any zone to switch your entire Mac to it (requires administrator authorization).
+- **Automatic location detection** — Detects your current city and time zone via IP geolocation, then switches with one click.
+- **Conflict warning** — If macOS "Set time zone automatically" is enabled, the panel warns you and links straight to System Settings, so your manual switch doesn't get reverted.
+- **Display options** — Toggle date in the menu bar, switch between 24-hour and 12-hour format, add or remove zones.
+- **Built-in updater** — Check for updates and upgrade in place from the settings window.
+
+## Requirements
+
+- macOS 14.0 (Sonoma) or later
+- Xcode Command Line Tools (for building from source)
+
+## Install
+
+Download the latest `TimeZoneBar.app.zip` from [Releases](https://github.com/susunola/TimeZoneBar/releases), unzip it, and drag `TimeZoneBar.app` into `/Applications`.
+
+The app is ad-hoc signed and not notarized, so the first launch needs a right-click → **Open** to get past Gatekeeper.
+
+### Build from source
 
 ```bash
+git clone https://github.com/susunola/TimeZoneBar.git
 cd TimeZoneBar
-./build.sh
+python3 make_icon.py Resources   # generate AppIcon.icns (standard library only)
+./build.sh                       # build, assemble the .app, sign
 ```
 
-产物在 `dist/TimeZoneBar.app`，拖入「应用程序」即可。首次运行若提示「无法打开」，右键 → 打开。
+The result lands in `dist/TimeZoneBar.app`.
 
-> 注：应用为 ad-hoc 签名，仅用于本机运行，未做开发者公证（notarization）。
+## Usage
 
-## 使用
+> **macOS 26 (Tahoe) note** — Tahoe added a permission layer for menu bar icons. Third-party apps are hidden by default.
+> Open **System Settings › Menu Bar › Allow in the Menu Bar** and turn on TimeZoneBar.
+> This permission is tied to the code signature, so **re-enable it after every app update**.
 
-> **macOS 26 (Tahoe) 特别注意**：系统新增「允许在菜单栏显示」权限层，第三方 App 图标默认不显示。
-> 首次安装后请到 **系统设置 › 菜单栏 › 允许在菜单栏显示**，把 TimeZoneBar 的开关打开，图标即出现。
-> 若列表里没有它：先退出 App（面板底部「退出」），再重新打开让它重新注册。
-
-| 操作 | 说明 |
+| Action | Result |
 |---|---|
-| 点击菜单栏时间 | 展开时区面板 |
-| 点击某个时区 | 切换系统时区（弹管理员授权框） |
-| 面板「自动识别当前位置时区」 | IP 定位 → 预览 → 切换 |
-| 面板底部「设置…」 | 增删时区 / 开机自启 |
-| 面板底部「退出 TimeZoneBar」 | 退出应用（无 Dock 图标，退出靠这里） |
+| Click the menu bar time | Open the time zone panel |
+| Click any zone row | Switch the system time zone (prompts for administrator authorization) |
+| "Detect current location" | IP geolocation → preview → switch |
+| Settings → "Software Update" | Check for and install a new version in place |
+| Settings → "Uninstall TimeZoneBar" | Remove the app and all local data |
+| Panel → "Quit TimeZoneBar" | Quit (there is no Dock icon, so quit from here) |
 
-## 常见问题
+## FAQ
 
-- **macOS 26 下菜单栏没有图标？** 打开 系统设置 › 菜单栏 › 允许在菜单栏显示，把 TimeZoneBar 打开（见上方「使用」）。
-- **为什么每次切换都要输密码？** macOS 安全机制要求修改系统时区需管理员权限，工具只借用系统授权框，不保存任何密码。
-- **切完又被改回去了？** 系统设置 › 通用 › 日期与时间 里的「自动设置时区」会按定位覆盖手动切换。工具会在检测到时提醒你关闭，或点击面板警告条直接跳转。
-- **识别不准确？** 免费 IP 定位精度有限（通常城市级），出差时够用；精确场景请直接手动选择。
+**No icon in the menu bar on macOS 26?**
+Enable it under System Settings › Menu Bar › Allow in the Menu Bar (see the note above).
 
-## 技术要点
+**Why does every switch ask for a password?**
+Changing the system time zone requires administrator privileges on macOS. The app uses the standard system authorization dialog and never stores your password.
 
-- AppKit `NSStatusItem` + `NSPopover`（SwiftUI 渲染面板内容），macOS 13+，无第三方依赖。
-- 切换：后台 `osascript` 子进程执行 `do shell script "/usr/sbin/systemsetup -settimezone 'Asia/Shanghai'" with administrator privileges`，授权期间不阻塞界面。
-- 自动时区开关检测：读取 `/Library/Preferences/com.apple.timezone.auto`（`Active = 1` 为开启）。
-- 图标：`make_icon.py` 纯标准库生成。
+**My switch got reverted.**
+System Settings › General › Date & Time › "Set time zone automatically" overrides manual changes based on your location. The app detects this and warns you; click the warning to jump to the setting.
+
+**Location detection is inaccurate.**
+Free IP geolocation is city-level at best. It's fine for travel, but pick the zone manually when precision matters.
+
+**Leftovers after uninstalling?**
+Launchpad caches its icon list, so run `killall Dock` (or log out and back in) to refresh it. That's a macOS behavior, not app residue.
+
+## Technical notes
+
+- AppKit `NSStatusItem` + `NSPopover`, with SwiftUI rendering the panel content. No third-party dependencies.
+- Time zone switching runs `/usr/sbin/systemsetup -settimezone` through an `osascript` subprocess with administrator privileges, off the main thread so the UI stays responsive during authorization.
+- "Set time zone automatically" detection reads `/Library/Preferences/com.apple.timezone.auto` (`Active = 1` means enabled).
+- IP geolocation tries ip-api.com first and falls back to ipapi.co.
+- Updates come from GitHub Releases and are verified against the SHA256 published in the release notes before installation.
+- The app icon is generated by `make_icon.py` using only the Python standard library.
+
+## License
+
+MIT

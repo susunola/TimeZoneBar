@@ -11,12 +11,12 @@ enum DetectionError: LocalizedError {
     case failed
 
     var errorDescription: String? {
-        "未能确定当前位置时区（请检查网络连接）"
+        "Could not determine your time zone (check your network connection)"
     }
 }
 
 enum LocationDetector {
-    /// ip-api.com 免费且实测稳定（http，已加 ATS 例外）；ipapi.co 免费档易限流，作备用
+    /// ip-api.com is free and reliable in practice (http, ATS exception added); ipapi.co is the fallback
     static let endpoints: [URL] = [
         URL(string: "http://ip-api.com/json/")!,
         URL(string: "https://ipapi.co/json/")!
