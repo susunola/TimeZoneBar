@@ -60,12 +60,23 @@ final class Updater: ObservableObject {
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 10
         do {
-            let (data, _) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            
+            // #3: Check HTTP status code
+            if let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode != 200 {
+                state = .error("GitHub API error: HTTP \(httpResponse.statusCode)")
+                return
+            }
+            
             let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-            let latest = release.tag_name.replacingOccurrences(of: "v", with: "")
-            let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-            if latest.compare(current, options: .numeric) == .orderedDescending {
-                state = .available(version: latest, release: release)
+            
+            // #2: More robust version parsing
+            let latest = parseVersion(release.tag_name)
+            let current = parseVersion(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0")
+            
+            if isVersionGreater(latest, than: current) {
+                state = .available(version: release.tag_name, release: release)
             } else {
                 state = .upToDate
             }
@@ -90,13 +101,29 @@ final class Updater: ObservableObject {
             var req = URLRequest(url: url)
             req.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
             req.timeoutInterval = 60
-            let (data, _) = try await URLSession.shared.data(for: req)
-            // Verify SHA256 (published on the "SHA256:" line of the release notes)
-            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            if let expected = sha256FromBody(release.body), expected.lowercased() != digest {
-                state = .error("Checksum mismatch (SHA256), installation aborted")
+            
+            let (data, response) = try await URLSession.shared.data(for: req)
+            
+            // #3: Check HTTP status code for download
+            if let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode != 200 {
+                state = .error("Download failed: HTTP \(httpResponse.statusCode)")
                 return
             }
+            
+            // #4: Fail-closed SHA256 verification
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            if let expected = sha256FromBody(release.body) {
+                if expected.lowercased() != digest {
+                    state = .error("Checksum mismatch (SHA256), installation aborted")
+                    return
+                }
+            } else {
+                // No checksum found in release notes - fail closed
+                state = .error("No SHA256 checksum found in release notes, installation aborted for security")
+                return
+            }
+            
             // Unzip into a temporary directory
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("tzbar-update-\(UUID().uuidString)")
@@ -109,6 +136,12 @@ final class Updater: ObservableObject {
             unzip.arguments = ["-xk", zipPath.path, tmp.path]
             try unzip.run()
             unzip.waitUntilExit()
+            
+            // #5: Check ditto exit code
+            if unzip.terminationStatus != 0 {
+                state = .error("Failed to unzip the installer (exit code: \(unzip.terminationStatus))")
+                return
+            }
 
             let newApp = tmp.appendingPathComponent("TimeZoneBar.app")
             guard FileManager.default.fileExists(atPath: newApp.path) else {
@@ -125,6 +158,26 @@ final class Updater: ObservableObject {
         } catch {
             state = .error("Update failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Parse version string to comparable array of integers
+    /// Handles: "v1.2.3", "1.2.3", "1.2", etc.
+    private func parseVersion(_ versionString: String) -> [Int] {
+        let cleaned = versionString.replacingOccurrences(of: "v", with: "").trimmingCharacters(in: .whitespaces)
+        return cleaned.split(separator: ".")
+            .compactMap { Int($0) }
+    }
+    
+    /// Compare two version arrays: returns true if v1 > v2
+    private func isVersionGreater(_ v1: [Int], than v2: [Int]) -> Bool {
+        let maxLength = max(v1.count, v2.count)
+        for i in 0..<maxLength {
+            let num1 = i < v1.count ? v1[i] : 0
+            let num2 = i < v2.count ? v2[i] : 0
+            if num1 > num2 { return true }
+            if num1 < num2 { return false }
+        }
+        return false
     }
 
     private func sha256FromBody(_ body: String?) -> String? {

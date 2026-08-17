@@ -58,9 +58,16 @@ final class TimeZoneStore: ObservableObject {
             zones = Self.defaultZones
         }
         currentZoneIdentifier = TimeZone.current.identifier
-        autoTimezoneEnabled = Self.readAutoTimezoneFlag()
         showDateInMenuBar = defaults.object(forKey: Self.showDateKey) as? Bool ?? false
         use24Hour = defaults.object(forKey: Self.use24HourKey) as? Bool ?? true
+        // autoTimezoneEnabled keeps its default false; refreshed asynchronously below (#7)
+        
+        Task {
+            let flag = await Self.readAutoTimezoneFlagAsync()
+            await MainActor.run {
+                self.autoTimezoneEnabled = flag
+            }
+        }
     }
 
     // MARK: - Display helpers
@@ -88,13 +95,80 @@ final class TimeZoneStore: ObservableObject {
         timeString(for: zone.id)
     }
 
-    /// Whether it is daytime there (06:00-18:00, simplified)
+    /// Whether it is daytime there (calculated from sun position)
     func isDaytime(in identifier: String) -> Bool {
         guard let tz = TimeZone(identifier: identifier) else { return true }
+        
+        // Get approximate latitude/longitude for the time zone
+        // This is a simplified mapping for common time zones
+        let coordinates = Self.approximateCoordinates(for: identifier)
+        
+        // Calculate sun position
+        let isDay = Self.isSunUp(latitude: coordinates.lat, longitude: coordinates.lon, date: now, timeZone: tz)
+        
+        return isDay
+    }
+    
+    /// Approximate coordinates for common time zones
+    private static func approximateCoordinates(for identifier: String) -> (lat: Double, lon: Double) {
+        switch identifier {
+        case "Asia/Shanghai": return (31.2, 121.5)      // Shanghai
+        case "Asia/Bangkok": return (13.8, 100.5)        // Bangkok
+        case "Asia/Jakarta": return (-6.2, 106.8)        // Jakarta
+        case "Europe/London": return (51.5, -0.1)        // London
+        case "America/New_York": return (40.7, -74.0)    // New York
+        case "Asia/Tokyo": return (35.7, 139.7)          // Tokyo
+        default:
+            // Extract approximate longitude from time zone offset
+            let offset = TimeZone(identifier: identifier)?.secondsFromGMT() ?? 0
+            let lon = Double(offset) / 3600.0 * 15.0
+            return (0.0, lon)  // Default to equator
+        }
+    }
+    
+    /// Calculate if sun is up at the given location and time
+    /// Uses a simplified solar position algorithm
+    private static func isSunUp(latitude: Double, longitude: Double, date: Date, timeZone: TimeZone) -> Bool {
+        // Convert to UTC
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = tz
-        let hour = cal.component(.hour, from: now)
-        return hour >= 6 && hour < 18
+        cal.timeZone = TimeZone(abbreviation: "UTC")!
+        
+        let year = cal.component(.year, from: date)
+        let month = cal.component(.month, from: date)
+        let day = cal.component(.day, from: date)
+        let hour = cal.component(.hour, from: date)
+        let minute = cal.component(.minute, from: date)
+        
+        // Calculate day of year
+        var dayOfYear = 0
+        let daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        for i in 0..<(month - 1) {
+            dayOfYear += daysInMonth[i]
+        }
+        dayOfYear += day
+        if month > 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+            dayOfYear += 1
+        }
+        
+        // Solar declination (simplified)
+        let declination = -23.44 * cos((2.0 * .pi / 365.0) * Double(dayOfYear + 10))
+        
+        // Hour angle
+        let fractionalHour = Double(hour) + Double(minute) / 60.0
+        let utcHour = fractionalHour - Double(timeZone.secondsFromGMT()) / 3600.0
+        let solarTime = utcHour + longitude / 15.0
+        let hourAngle = (solarTime - 12.0) * 15.0
+        
+        // Solar elevation
+        let latRad = latitude * .pi / 180.0
+        let decRad = declination * .pi / 180.0
+        let haRad = hourAngle * .pi / 180.0
+        
+        let sinElevation = sin(latRad) * sin(decRad) + cos(latRad) * cos(decRad) * cos(haRad)
+        let elevation = asin(sinElevation) * 180.0 / .pi
+        
+        // Sun is up if elevation > -0.83 degrees (accounting for atmospheric refraction)
+        return elevation > -0.83
     }
 
     /// Whether the zone currently observes daylight saving time
@@ -137,7 +211,8 @@ final class TimeZoneStore: ObservableObject {
             do {
                 try await SystemZoneSwitcher.switchTimeZone(to: id)
                 currentZoneIdentifier = id
-                autoTimezoneEnabled = Self.readAutoTimezoneFlag()
+                let flag = await Self.readAutoTimezoneFlagAsync()
+                autoTimezoneEnabled = flag
             } catch {
                 lastError = error.localizedDescription
             }
@@ -181,7 +256,29 @@ final class TimeZoneStore: ObservableObject {
         }
     }
 
-    /// Reads the "Set time zone automatically" flag from /Library/Preferences/com.apple.timezone.auto
+    /// #7: Reads the "Set time zone automatically" flag from /Library/Preferences/com.apple.timezone.auto (async version)
+    private static func readAutoTimezoneFlagAsync() async -> Bool {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .background).async {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+                p.arguments = ["read", "/Library/Preferences/com.apple.timezone.auto"]
+                let pipe = Pipe()
+                p.standardOutput = pipe
+                p.standardError = Pipe()
+                do { try p.run() } catch { 
+                    continuation.resume(returning: false)
+                    return 
+                }
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                p.waitUntilExit()
+                let out = String(data: data, encoding: .utf8) ?? ""
+                continuation.resume(returning: out.contains("Active = 1"))
+            }
+        }
+    }
+
+    /// Synchronous version kept for backward compatibility (used after switchTo)
     private static func readAutoTimezoneFlag() -> Bool {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")

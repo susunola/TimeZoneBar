@@ -8,7 +8,7 @@ DIST="dist"
 APP="$DIST/$NAME.app"
 
 echo "==> 1/4 swift build (release)"
-swift build -c release
+swift build -c release --disable-sandbox
 
 echo "==> 2/4 Assembling the .app bundle"
 rm -rf "$APP"
