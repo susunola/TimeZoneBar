@@ -73,6 +73,7 @@ struct ZoneRowView: View {
     private var isCurrent: Bool { zone.id == store.currentZoneIdentifier }
     private var dayDiff: Int { store.dayDifference(for: zone) }
     private var offset: String { TimeZoneStore.offsetString(for: zone.id) }
+    private var isDay: Bool { store.isDaytime(in: zone.id) }  // compute once per render
 
     private var dayLabel: String {
         switch dayDiff {
@@ -119,9 +120,9 @@ struct ZoneRowView: View {
                 VStack(alignment: .trailing, spacing: 1) {
                     HStack(spacing: 4) {
                         // Day/night indicator
-                        Image(systemName: store.isDaytime(in: zone.id) ? "sun.max.fill" : "moon.fill")
+                        Image(systemName: isDay ? "sun.max.fill" : "moon.fill")
                             .font(.system(size: 10))
-                            .foregroundColor(store.isDaytime(in: zone.id) ? .orange : .indigo)
+                            .foregroundColor(isDay ? .orange : .indigo)
                         Text(store.timeString(for: zone))
                             .font(.system(size: 15, weight: .medium, design: .monospaced))
                     }

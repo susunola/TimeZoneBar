@@ -9,9 +9,18 @@ struct GeoResult: Decodable {
 
 enum DetectionError: LocalizedError {
     case failed
+    case networkUnavailable
+    case noTimezoneReturned
 
     var errorDescription: String? {
-        "Could not determine your time zone (check your network connection)"
+        switch self {
+        case .failed:
+            return "Could not determine your time zone (check your network connection)"
+        case .networkUnavailable:
+            return "Network unavailable — please check your internet connection"
+        case .noTimezoneReturned:
+            return "Server response did not contain a valid time zone"
+        }
     }
 }
 
@@ -23,20 +32,33 @@ enum LocationDetector {
     ]
 
     static func detect() async throws -> DetectedZone {
+        var lastError: Error?
         for url in endpoints {
             do {
                 var request = URLRequest(url: url)
                 request.timeoutInterval = 8
-                let (data, _) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                // Check HTTP status
+                if let httpResponse = response as? HTTPURLResponse,
+                   httpResponse.statusCode != 200 {
+                    lastError = DetectionError.networkUnavailable
+                    continue
+                }
+                
                 let geo = try JSONDecoder().decode(GeoResult.self, from: data)
-                guard !geo.timezone.isEmpty else { continue }
+                guard !geo.timezone.isEmpty else {
+                    lastError = DetectionError.noTimezoneReturned
+                    continue
+                }
                 return DetectedZone(timezone: geo.timezone,
                                     city: geo.city ?? "",
                                     country: geo.country_name ?? geo.country ?? "")
             } catch {
+                lastError = error
                 continue
             }
         }
-        throw DetectionError.failed
+        throw lastError ?? DetectionError.failed
     }
 }

@@ -182,12 +182,20 @@ final class Updater: ObservableObject {
 
     private func sha256FromBody(_ body: String?) -> String? {
         guard let body else { return nil }
-        return body.split(separator: "\n").compactMap { line -> String? in
-            let l = line.trimmingCharacters(in: .whitespaces)
-            guard l.uppercased().hasPrefix("SHA256:") else { return nil }
-            return l.replacingOccurrences(of: "SHA256:", with: "")
-                .trimmingCharacters(in: .whitespaces)
-                .lowercased()
-        }.first
+        // Support multiple formats: "SHA256: abc123", "sha256: abc123", "SHA256 abc123", "Checksum: abc123"
+        let patterns = ["SHA256:", "sha256:", "SHA 256:", "Checksum:"]
+        for line in body.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            for pattern in patterns {
+                if trimmed.uppercased().contains(pattern.uppercased()) {
+                    let afterPattern = trimmed.split(separator: ":", maxSplits: 1).last ?? ""
+                    let hash = afterPattern.trimmingCharacters(in: .whitespaces)
+                    if hash.count == 64 {  // SHA256 is 64 hex chars
+                        return hash.lowercased()
+                    }
+                }
+            }
+        }
+        return nil
     }
 }

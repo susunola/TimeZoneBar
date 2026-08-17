@@ -20,6 +20,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPopover()
         startTimer()
+        // Refresh immediately after system wakes from sleep
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleWake(_ notification: Notification) {
+        store.now = Date()
+        statusItem.button?.title = " " + store.menuBarText
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -42,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPopover() {
         popover = NSPopover()
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 360)
+        popover.contentSize = NSSize(width: 330, height: 360)
         popover.contentViewController = NSHostingController(
             rootView: MenuPanelView().environmentObject(store)
         )

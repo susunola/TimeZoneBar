@@ -68,6 +68,11 @@ struct SettingsView: View {
                             }
                         } catch {
                             launchAtLogin = !newValue
+                            let alert = NSAlert()
+                            alert.messageText = "Failed to \(newValue ? "enable" : "disable") launch at login"
+                            alert.informativeText = error.localizedDescription
+                            alert.alertStyle = .warning
+                            alert.runModal()
                         }
                     }
             }
@@ -281,7 +286,8 @@ struct SettingsView: View {
         Task {
             do {
                 try await PrivilegedRunner.run(script: script)
-                isUninstalling = false
+                // App bundle deleted; quit so the process exits cleanly.
+                // isUninstalling is not reset here because the app terminates immediately.
                 NSApp.terminate(nil)
             } catch {
                 isUninstalling = false

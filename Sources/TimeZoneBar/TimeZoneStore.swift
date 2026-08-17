@@ -209,7 +209,18 @@ final class TimeZoneStore: ObservableObject {
         let id = zone.id
         Task {
             do {
-                try await SystemZoneSwitcher.switchTimeZone(to: id)
+                // Timeout: 15 seconds max (waiting for admin authorization)
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        try await SystemZoneSwitcher.switchTimeZone(to: id)
+                    }
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 15_000_000_000)
+                        throw ZoneSwitchError.adminRejected("Timed out waiting for authorization")
+                    }
+                    defer { group.cancelAll() }
+                    try await group.next()!
+                }
                 currentZoneIdentifier = id
                 let flag = await Self.readAutoTimezoneFlagAsync()
                 autoTimezoneEnabled = flag
@@ -227,7 +238,18 @@ final class TimeZoneStore: ObservableObject {
         detected = nil
         Task {
             do {
-                detected = try await LocationDetector.detect()
+                // Timeout: 10 seconds max for network request
+                try await withThrowingTaskGroup(of: DetectedZone.self) { group in
+                    group.addTask {
+                        try await LocationDetector.detect()
+                    }
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 10_000_000_000)
+                        throw DetectionError.failed
+                    }
+                    defer { group.cancelAll() }
+                    detected = try await group.next()!
+                }
             } catch {
                 lastError = error.localizedDescription
             }
@@ -251,8 +273,11 @@ final class TimeZoneStore: ObservableObject {
     }
 
     func save() {
-        if let data = try? JSONEncoder().encode(zones) {
+        do {
+            let data = try JSONEncoder().encode(zones)
             defaults.set(data, forKey: Self.zonesKey)
+        } catch {
+            lastError = "Failed to save settings: \(error.localizedDescription)"
         }
     }
 
