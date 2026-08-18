@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.zoomWindow = { [weak self] in
             // Green traffic light: toggle zoom (maximize / restore). For a
             // borderless panel, performZoom() is the closest system match.
-            self?.panel.performZoom(nil)
+self?.panel.performZoom(nil)
         }
         setupStatusItem()
         setupPanel()
