@@ -235,27 +235,36 @@ private struct CategoryAppearance: View {
 
     var body: some View {
         SettingsForm {
+            // NOTE: .pickerStyle(.menu) only reads the Text inside each option
+            // as the menu item title — any other views (ThemeSwatch, VStacks,
+            // custom checkmarks) are silently dropped, and the system draws
+            // its own checkmark on the selected item. So the menu holds plain
+            // theme names only; the live preview is rendered below the picker
+            // (ThemeSwatch is pointless inside the menu and caused the
+            // duplicate-checkmark + time-only-label bug).
             Picker("Theme", selection: $store.theme) {
                 ForEach(Theme.allCases) { theme in
-                    HStack(spacing: 10) {
-                        ThemeSwatch(theme: theme)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(theme.displayName)
-                                .font(.system(size: 13, weight: .medium))
-                            Text(themeDescription(theme))
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        if store.theme == theme {
-                            Image(systemName: "checkmark")
-                                .foregroundColor(.blue)
-                        }
-                    }
-                    .tag(theme)
+                    Text(theme.displayName)
+                        .tag(theme)
                 }
             }
             .pickerStyle(.menu)
+
+            // Live preview of the currently selected theme.
+            HStack(spacing: 12) {
+                ThemeSwatch(theme: store.theme)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.theme.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                    Text(themeDescription(store.theme))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
         }
     }
 }
