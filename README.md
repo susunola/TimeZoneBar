@@ -1,5 +1,7 @@
 # TravelTime
 
+![TravelTime logo](assets/logo.png)
+
 A lightweight macOS menu bar app for tracking multiple time zones and switching your system time zone in one click.
 
 ![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)
