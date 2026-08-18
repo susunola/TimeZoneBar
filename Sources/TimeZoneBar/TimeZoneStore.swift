@@ -161,6 +161,10 @@ final class TimeZoneStore: ObservableObject {
     private static let use24HourKey = "pref.use24Hour"
     private static let themeKey = "pref.theme"
     private var autoTimezoneMonitor: AnyCancellable?
+    /// How often the app re-probes the location (seconds). 30 minutes: cheap,
+    /// infrequent, and keeps the confirmation card fresh for travellers.
+    static let locationPollInterval: TimeInterval = 1800
+    private var locationMonitor: AnyCancellable?
 
     /// Path to the user-selected avatar image in Application Support, or nil
     /// to use the bundled default. Reloaded on demand (Refresh) or when
@@ -263,6 +267,7 @@ final class TimeZoneStore: ObservableObject {
         // autoTimezoneEnabled keeps its default false; refreshed asynchronously below
         refreshAutoTimezoneFlag()
         startAutoTimezoneMonitoring()
+        startPeriodicLocationDetection()
     }
 
     /// Drops the current-row pointer when its row was deleted / replaced by
@@ -315,6 +320,28 @@ final class TimeZoneStore: ObservableObject {
                 guard let self, self.isPanelVisible else { return }
                 self.refreshAutoTimezoneFlag()
             }
+    }
+
+    /// Re-probes the location every `locationPollInterval` seconds (30 min) so
+    /// travellers who cross zones get the confirmation card without having to
+    /// open the panel or click Detect.
+    ///
+    /// Deliberately NOT gated on `isPanelVisible`: a 30-minute, tiny HTTPS
+    /// request is cheap, and probing while the panel is closed means the card
+    /// is already there (and the zone list fresh) the moment the user opens
+    /// it. Silent mode keeps it invisible when nothing changed.
+    private func startPeriodicLocationDetection() {
+        stopPeriodicLocationDetection()
+        locationMonitor = Timer.publish(every: Self.locationPollInterval, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.detectLocation(silentIfMatchesCurrent: true)
+            }
+    }
+
+    private func stopPeriodicLocationDetection() {
+        locationMonitor?.cancel()
+        locationMonitor = nil
     }
 
     @objc private func handleTimeZoneChange(_ note: Notification) {
