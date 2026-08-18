@@ -60,6 +60,7 @@ struct SettingsView: View {
                 case .appearance: CategoryAppearance()
                 case .update:     CategoryUpdate()
                 case .uninstall:  CategoryUninstall()
+                case .about:      CategoryAbout()
                 }
             }
             .frame(minWidth: 480, minHeight: 460)
@@ -81,7 +82,7 @@ struct SettingsView: View {
 /// Sidebar categories. The raw value is persisted so the user's last
 /// selected category is restored on the next launch.
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general, display, timeZones, appearance, update, uninstall
+    case general, display, timeZones, appearance, update, uninstall, about
     var id: Self { self }
 
     var title: String {
@@ -92,6 +93,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: return "Appearance"
         case .update:     return "Software Update"
         case .uninstall:  return "Uninstall"
+        case .about:      return "About"
         }
     }
 
@@ -103,6 +105,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: return "paintbrush"
         case .update:     return "arrow.down.circle"
         case .uninstall:  return "trash"
+        case .about:      return "info.circle"
         }
     }
 }
@@ -440,6 +443,56 @@ struct SettingsForm<Content: View>: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// MARK: - About
+
+private struct CategoryAbout: View {
+    var body: some View {
+        SettingsForm {
+            VStack(spacing: 14) {
+                // App icon (the bundled .icns when present, generic otherwise).
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                VStack(spacing: 3) {
+                    Text("TravelTime")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text(versionText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+
+            Divider()
+
+            LabeledContent("Author") {
+                Text("susunola")
+            }
+            LabeledContent("Email") {
+                if let url = URL(string: "mailto:atomwangnus@hotmail.com") {
+                    Link("atomwangnus@hotmail.com", destination: url)
+                        .foregroundColor(.blue)
+                }
+            }
+
+            Text("Made for travellers juggling time zones across the world.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
+        }
+    }
+
+    private var versionText: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return "Version \(short) (\(build))"
     }
 }
 
