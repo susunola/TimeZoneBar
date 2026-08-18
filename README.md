@@ -18,8 +18,6 @@ Pick the look that suits your desktop. Switch at any time from **Settings → Ap
 |---|---|
 | ![Midnight theme](docs/screenshots/theme-midnight.png) | ![Editorial theme](docs/screenshots/theme-editorial.png) |
 
-*UI renderings above; screenshots may differ slightly from a real build.*
-
 ## Features
 
 - **Multi-zone clock** — See your local time in the menu bar, and multiple zones at a glance in the panel. Each row shows today / yesterday / tomorrow relative to your system time zone.
