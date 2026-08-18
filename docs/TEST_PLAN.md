@@ -1,34 +1,46 @@
 # TravelTime 测试计划
 
-> 版本：2026-08-18 · 对应 HEAD `4e74a4b`
-> 状态：**25 个单元测试全绿**，CI 已跑 build + test + bundle 组装。本计划补齐分层缺口。
+> 版本：2026-08-18 · 对应 HEAD round-4 修复批次
+> 状态：**46 个单元测试全绿**，CI 跑 build + test（+ macos-26 可选门）+ bundle 组装。
 
 ## 1. 测试分层
 
 | 层级 | 范围 | 现状 | 目标 |
 |---|---|---|---|
-| **L1 单元** | 纯逻辑函数（时间格式化/版本比较/SHA 解析/颜色解析/JSON 迁移/高度计算） | ✅ 25 个 | 30+ |
-| **L2 集成** | 进程边界（osascript 提权/超时终止）、网络边界（定位 provider 错误分支）、UserDefaults 持久化 | ⚠️ 部分（GeoResult 解码有，进程/网络无） | 补 8 个 |
-| **L3 UI 冒烟** | 真实 app 启动、主题切换、增删改时区、窗口自适应 | ❌ 无（依赖 macOS 26 scene fence，需人工） | 半自动脚本 + 发版人工清单 |
+| **L1 单元** | 纯逻辑函数（时间格式化/版本比较/SHA 解析/颜色解析/JSON 迁移/高度计算/跨时区日历日/探测滤波） | ✅ 46 个 | 稳定 |
+| **L2 集成** | 进程边界（osascript 提权/超时终止）、网络边界（定位 provider 错误分支 + HTTP 429/403）、UserDefaults 持久化 | ✅ 覆盖 | 稳定 |
+| **L3 UI 冒烟** | 真实 app 启动、主题切换、增删改时区、窗口自适应、探测卡片 | ❌ 无（依赖 macOS 26 scene fence，需人工） | 发版人工清单 |
 | **L4 发版回归** | 手动 checklist | ✅ 有流程（build.sh release） | 固化为文档清单 |
 
-## 2. 当前覆盖矩阵（25 个测试）
+## 2. 当前覆盖矩阵（46 个测试）
 
 | 模块 | 覆盖点 | 用例数 | 状态 |
 |---|---|---|---|
 | `TimeZoneStore` | `offsetString`（整点/半点/非法） | 3 | ✅ |
 | `ZoneEntry` | 旧数据无 uuid 迁移、round-trip 持久化 | 2 | ✅ |
-| `Updater` | `parseVersion`/`isVersionGreater`/`sha256FromBody` | 3 | ✅ |
+| `Updater` | `parseVersion`/`isVersionGreater`/`sha256FromBody`（含嵌入式 v、verified 后缀） | 5 | ✅ |
 | `Updater` | `appBundle(in:)` 旧名/现名/无 bundle 防御 | 3 | ✅ |
-| `TimeZoneStore` | `dayDifference`（同区为 0） | 1 | ✅ |
+| `TimeZoneStore` | `dayDifference`（同区为 0 / 以显示时区为基准跨日） | 2 | ✅ |
 | `TimeZoneStore` | `currentZoneUUID` 启动恢复、删当前行按 id 回填 | 2 | ✅ |
 | `TimeZoneStore` | 调色板轮转不重复 | 1 | ✅ |
 | `AppDelegate` | `panelContentHeight` 随行数缩放/editorial chrome/下限/屏幕 cap | 4 | ✅ |
 | `TimeZoneStore` | `dayLabel` 三态 + 越界 | 1 | ✅ |
 | `GeoResult` | ipwho.is 嵌套 / ipapi.co 扁平 / 限流 / 错误对象 | 4 | ✅ |
 | `Color(hex:)` | 6 位/3 位/8 位 alpha/非法回退 | 1 | ✅ |
+| `TimeZoneStore` | `shouldSurfaceDetection`（静默启动过滤） | 1 | ✅ |
+| `TimeZoneStore` | `switchTo` 状态机/并发拒绝/失败复位/用户取消静默/成功后持久化 UUID | 4 | ✅ |
+| `TimeZoneStore` | `confirmDetectedZone` 非法 tz 拒绝 / 新增并切换 | 2 | ✅ |
+| `TimeZoneStore` | `isDaytime` 太阳算法固定时刻 | 1 | ✅ |
+| `TimeZoneStore` | `cachedFormatter` 命中/新建/key 隔离 | 1 | ✅ |
+| `TimeZoneStore` | `hourOfDay` 以显示时区取小时 | 1 | ✅ |
+| `SystemZoneSwitcher` | 未知 id 白名单拒绝 | 1 | ✅ |
+| `PrivilegedRunner` | 超时终止挂起子进程 | 1 | ✅ |
+| `LocationDetector` | ipwho.is 形状 / HTTP 429→限流 / HTTP 403→限流 / 全失败 / 回退第二 provider | 5 | ✅ |
 
 ## 3. 缺口与新增测试清单
+
+> round-4 已补齐：自动探测（启动静默 + 30 分钟轮询 + 卡片）、`switchTo` 完成回调、`confirmDetectedZone` 先消费卡片再追加行、`dayDifference` 以显示时区为基准（修复北京/纽约误判 Today）、`parseVersion` 仅去首部 v、`sha256FromBody` 正则容错 `verified` 后缀、`LocationDetector` HTTP 429/403→限流。上表为本轮后的覆盖快照，实际 46 个用例全绿。
+
 
 ### P1 — 优先补（核心逻辑最薄弱处）
 

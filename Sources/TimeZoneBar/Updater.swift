@@ -179,7 +179,12 @@ final class Updater: ObservableObject {
     /// three dot-separated segments are kept, so prerelease suffixes like
     /// "2.0.0-beta.1" never inflate the version (internal for tests).
     func parseVersion(_ versionString: String) -> [Int] {
-        let cleaned = versionString.replacingOccurrences(of: "v", with: "").trimmingCharacters(in: .whitespaces)
+        // Strip only a LEADING v/V — replacing every "v" would also eat the
+        // letter inside suffixes like "1.2.3+build.v2".
+        var cleaned = versionString.trimmingCharacters(in: .whitespaces)
+        if cleaned.first == "v" || cleaned.first == "V" {
+            cleaned.removeFirst()
+        }
         return cleaned.split(separator: ".")
             .prefix(3)
             .compactMap { segment -> Int? in
@@ -202,18 +207,17 @@ final class Updater: ObservableObject {
 
     func sha256FromBody(_ body: String?) -> String? {
         guard let body else { return nil }
-        // Support multiple formats: "SHA256: abc123", "sha256: abc123", "SHA256 abc123", "Checksum: abc123"
-        let patterns = ["SHA256:", "sha256:", "SHA 256:", "Checksum:"]
+        // Support multiple formats: "SHA256: abc123", "sha256: abc123",
+        // "SHA 256: abc123", "Checksum: abc123". The hash is extracted with a
+        // regex instead of splitting on ":" — notes like
+        // "SHA256: <hash> (verified)" would otherwise carry the suffix and
+        // fail the length check, silently degrading to "no checksum found".
+        let markers = ["SHA256", "SHA 256", "CHECKSUM"]
         for line in body.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            for pattern in patterns {
-                if trimmed.uppercased().contains(pattern.uppercased()) {
-                    let afterPattern = trimmed.split(separator: ":", maxSplits: 1).last ?? ""
-                    let hash = afterPattern.trimmingCharacters(in: .whitespaces)
-                    if hash.count == 64 {  // SHA256 is 64 hex chars
-                        return hash.lowercased()
-                    }
-                }
+            guard markers.contains(where: { trimmed.uppercased().contains($0) }) else { continue }
+            if let range = trimmed.range(of: #"[0-9a-fA-F]{64}"#, options: .regularExpression) {
+                return String(trimmed[range]).lowercased()
             }
         }
         return nil

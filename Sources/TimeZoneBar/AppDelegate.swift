@@ -93,9 +93,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // setupPanel may not have run yet (e.g. a zones change during init),
         // so guard the implicit-unwrapped window.
         guard let panel = self.panel else { return }
-        let wanted = Self.panelContentHeight(zoneCount: store.zones.count,
-                                             theme: store.theme,
-                                             maxContentHeight: maxPanelContentHeight)
+        // Prefer the hosting view's natural content height over a hardcoded
+        // chrome estimate — this tracks the real header/footer/row layout (and
+        // theme differences) instead of the magic 360/400 constants in
+        // panelContentHeight. fittingSize can read 0 before the first layout,
+        // so fall back to the formula in that case.
+        let natural: CGFloat
+        // contentView is NSView?; fittingSize is an NSView property, so just
+        // unwrap it (NSHostingView is generic over its content and can't be
+        // inferred here, but the optional unwrap is all we need).
+        if let hosting = panel.contentView, hosting.fittingSize.height > 0 {
+            natural = hosting.fittingSize.height
+        } else {
+            natural = Self.panelContentHeight(zoneCount: store.zones.count, theme: store.theme)
+        }
+        let wanted = min(max(natural, 460), maxPanelContentHeight)
         let width = panel.frame.width
         panel.setContentSize(NSSize(width: width, height: wanted))
         panel.layoutIfNeeded()
@@ -187,6 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         store.setPanelVisible(true)
+        // Re-sync the auto-timezone warning banner with System Settings on
+        // every open — `MenuPanelView.onAppear` only fires once, so toggling
+        // "Set time zone automatically" while the panel was closed would
+        // otherwise not be reflected until a relaunch.
+        store.refreshAutoTimezoneFlag()
         // Errors from a previous interaction shouldn't linger on the next open.
         store.lastError = nil
     }

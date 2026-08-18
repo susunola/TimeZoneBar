@@ -352,9 +352,12 @@ final class TimeZoneStore: ObservableObject {
 
     /// Cached DateFormatters — constructing one is expensive and the panel
     /// redraws every minute, so reuse per (format, timezone) pair. Bounded by
-    /// (number of zones × 2 formats), so it can never grow unbounded. This is
-    /// mutable static state: only ever touch it from the MainActor (both the
-    /// store and the SwiftUI views are MainActor-isolated).
+    /// (number of zones × the formats in use: HH:mm / h:mm a / M/d /
+    /// EEEE, MMM d), so it can never grow unbounded — but the bound scales
+    /// with new call sites, so avoid inventing new format strings in hot
+    /// paths. Mutable static state on a @MainActor class: callers must stay
+    /// on the main actor (the class isolation enforces this at compile time
+    /// once the module adopts Swift 6 concurrency checking).
     private static var formatterCache: [String: DateFormatter] = [:]
 
     static func cachedFormatter(format: String, timeZone: TimeZone? = nil) -> DateFormatter {
@@ -505,16 +508,34 @@ final class TimeZoneStore: ObservableObject {
         return String(format: "%@%d:%02d", sign, hours, minutes)
     }
 
-    /// Day offset vs the system zone: 0 same day, -1 yesterday, +1 tomorrow
+    /// Day offset vs the DISPLAYED zone (not the host system zone — the app's
+    /// "here" is `currentZoneIdentifier`, which may differ from the OS zone):
+    /// 0 same day, -1 yesterday, +1 tomorrow.
+    ///
+    /// Computed as the difference in *calendar* day between the two zones at
+    /// the same instant — not as the `.day` component between their absolute
+    /// midnights. The latter reads 0 for any pair ~12 h apart (e.g. Beijing vs
+    /// New York, an odd UTC offset) and would mislabel "Yesterday"/"Tomorrow"
+    /// rows. We date each zone's start-of-day back to a shared epoch *in that
+    /// zone's own calendar*, so month/year boundaries and odd offsets are all
+    /// handled correctly.
     func dayDifference(for zone: ZoneEntry) -> Int {
-        guard let tz = TimeZone(identifier: zone.id) else { return 0 }
-        var here = Calendar(identifier: .gregorian)
-        here.timeZone = TimeZone.current
-        let hereDay = here.startOfDay(for: now)
-        var there = Calendar(identifier: .gregorian)
-        there.timeZone = tz
-        let thereDay = there.startOfDay(for: now)
-        return there.dateComponents([.day], from: hereDay, to: thereDay).day ?? 0
+        guard let tz = TimeZone(identifier: zone.id),
+              let hereTZ = TimeZone(identifier: currentZoneIdentifier) else { return 0 }
+        return Self.calendarDayIndex(for: now, in: tz)
+             - Self.calendarDayIndex(for: now, in: hereTZ)
+    }
+
+    /// Number of whole calendar days from 1970-01-01 (in `tz`) to the start of
+    /// the day containing `date`. Both endpoints are local midnight *in `tz`*,
+    /// so the absolute gap is always a whole number of days — comparing two
+    /// zones' indices yields the true calendar-day offset between them.
+    private static func calendarDayIndex(for date: Date, in tz: TimeZone) -> Int {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = tz
+        let start = cal.startOfDay(for: date)
+        let epoch = cal.date(from: DateComponents(year: 1970, month: 1, day: 1))!
+        return cal.dateComponents([.day], from: epoch, to: start).day ?? 0
     }
 
     /// Human label for a day offset (-1 yesterday, 0 today, +1 tomorrow).
@@ -530,12 +551,15 @@ final class TimeZoneStore: ObservableObject {
     // MARK: - Actions
 
     /// Switches the SYSTEM time zone (admin prompt) and marks the row as current.
-    func switchTo(_ zone: ZoneEntry) {
-        guard !isSwitching else { return }
+    /// `completion` reports whether the switch actually happened — false covers
+    /// invalid ids, re-entrancy, admin rejection and user cancellation.
+    func switchTo(_ zone: ZoneEntry, completion: (@MainActor (Bool) -> Void)? = nil) {
+        guard !isSwitching else { completion?(false); return }
         // Validate before anything touches the privileged path — a bad IANA id
         // must never reach the shell.
         guard TimeZone(identifier: zone.id) != nil else {
             lastError = "Invalid time zone: \(zone.id)"
+            completion?(false)
             return
         }
         isSwitching = true
@@ -543,6 +567,7 @@ final class TimeZoneStore: ObservableObject {
         let id = zone.id
         let uuid = zone.uuid
         Task {
+            var success = false
             do {
                 // PrivilegedRunner enforces its own 15 s timeout and kills the
                 // osascript child if the user ignores the authorization dialog.
@@ -553,6 +578,7 @@ final class TimeZoneStore: ObservableObject {
                 defaults.set(uuid.uuidString, forKey: Self.currentZoneUUIDKey)
                 let flag = await Self.readAutoTimezoneFlagAsync()
                 autoTimezoneEnabled = flag
+                success = true
             } catch let error as ZoneSwitchError {
                 // User canceling the authorization dialog is a deliberate "no",
                 // not an error to surface — keep the panel quiet.
@@ -562,23 +588,31 @@ final class TimeZoneStore: ObservableObject {
                 lastError = error.localizedDescription
             }
             isSwitching = false
+            completion?(success)
         }
     }
 
     func detectLocation(silentIfMatchesCurrent: Bool = false) {
         guard !isDetecting else { return }
+        // A scheduled (silent) probe must not wipe a detection card the user
+        // is actively looking at — only a manual Detect click refreshes it.
+        if silentIfMatchesCurrent, detected != nil { return }
         isDetecting = true
         lastError = nil
         detected = nil
         Task {
             do {
-                // Timeout: 10 seconds max for network request
+                // Outer timeout. Two providers × 8 s request timeout means the
+                // fallback path can legitimately take up to ~16 s; a 10 s cap
+                // here killed slow-but-successful results (observed the second
+                // provider succeeding at ~12 s being discarded). 20 s leaves
+                // headroom without hanging forever.
                 try await withThrowingTaskGroup(of: DetectedZone.self) { group in
                     group.addTask {
                         try await LocationDetector.detect()
                     }
                     group.addTask {
-                        try await Task.sleep(nanoseconds: 10_000_000_000)
+                        try await Task.sleep(nanoseconds: 20_000_000_000)
                         throw DetectionError.failed
                     }
                     defer { group.cancelAll() }
@@ -628,15 +662,24 @@ final class TimeZoneStore: ObservableObject {
             lastError = "Detected time zone is not valid: \(d.timezone)"
             return
         }
+        // The user has decided — consume the card up front so it doesn't
+        // linger (or get wiped by a scheduled probe) during the switch.
+        detected = nil
         if let entry = zones.first(where: { $0.id == d.timezone }) {
             switchTo(entry)
         } else {
+            // Only append the new row AFTER a successful privileged switch.
+            // Previously the row was appended first: cancelling the admin
+            // dialog left an orphan row for a zone the system never switched
+            // to, with no explanation (userCanceled stays silent).
             let entry = ZoneEntry(id: d.timezone,
                                   label: d.city.isEmpty ? d.timezone : d.city,
                                   region: d.country,
                                   color: nextZoneColor())
-            zones.append(entry)     // didSet persists
-            switchTo(entry)
+            switchTo(entry) { [weak self] success in
+                guard let self, success else { return }
+                self.zones.append(entry)     // didSet persists
+            }
         }
     }
 

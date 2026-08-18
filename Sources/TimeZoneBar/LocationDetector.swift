@@ -97,10 +97,17 @@ enum LocationDetector {
                 request.timeoutInterval = 8
                 let (data, response) = try await session.data(for: request)
 
-                // Check HTTP status
+                // Check HTTP status. 429/403 from these providers mean
+                // throttling/blocking, not "no network" — surface them as
+                // rateLimited so the message doesn't mislead the user.
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode != 200 {
-                    lastError = DetectionError.networkUnavailable
+                    switch httpResponse.statusCode {
+                    case 429, 403:
+                        lastError = DetectionError.rateLimited("HTTP \(httpResponse.statusCode)")
+                    default:
+                        lastError = DetectionError.networkUnavailable
+                    }
                     continue
                 }
 

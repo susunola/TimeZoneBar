@@ -96,6 +96,17 @@ final class TravelTimeTests: XCTestCase {
     }
 
     @MainActor
+    func testParseVersionKeepsEmbeddedVOutOfDigits() {
+        let updater = Updater()
+        // The fix strips ONLY a leading "v"/"V". The old code's
+        // `replacingOccurrences(of: "v", with: "")` turned "1.2.3v4" into
+        // "1.2.34" -> [1, 2, 34], leaking the embedded letter into the version.
+        XCTAssertEqual(updater.parseVersion("1.2.3v4"), [1, 2, 3])
+        XCTAssertEqual(updater.parseVersion("v1.2.3"), [1, 2, 3])
+        XCTAssertEqual(updater.parseVersion("V2.0.0"), [2, 0, 0])
+    }
+
+    @MainActor
     func testIsVersionGreater() {
         let updater = Updater()
         XCTAssertTrue(updater.isVersionGreater([2, 0, 0], than: [1, 9, 9]))
@@ -118,17 +129,48 @@ final class TravelTimeTests: XCTestCase {
         XCTAssertNil(updater.sha256FromBody("SHA256: short"))
     }
 
+    @MainActor
+    func testSHA256FromBodyToleratesVerifiedSuffix() {
+        let updater = Updater()
+        let hash = String(repeating: "ab", count: 32)
+        // Release notes often append "(verified)" — splitting on ":" would
+        // carry the suffix and fail the 64-hex length check, silently
+        // degrading to "no checksum found". The regex extracts the hash.
+        XCTAssertEqual(updater.sha256FromBody("SHA256: \(hash) (verified)"), hash)
+        XCTAssertEqual(updater.sha256FromBody("SHA 256: \(hash) (verified)"), hash)
+    }
+
     // MARK: - Day difference
 
     @MainActor
     func testDayDifferenceSameZoneIsZero() {
         let store = makeStore()
-        // A zone whose id equals the host system zone is always "Today".
-        let zone = ZoneEntry(id: TimeZone.current.identifier,
-                             label: "Local",
+        // The baseline is the DISPLAYED zone (currentZoneIdentifier), not the
+        // host system zone — a zone matching it is always "Today".
+        let zone = ZoneEntry(id: store.currentZoneIdentifier,
+                             label: "Current",
                              region: "",
                              color: "#007AFF")
         XCTAssertEqual(store.dayDifference(for: zone), 0)
+    }
+
+    @MainActor
+    func testDayDifferenceUsesDisplayedZoneAsBaseline() {
+        // Fixed instant: 2026-08-18 01:00 Beijing (UTC+8) is still
+        // 2026-08-17 13:00 in New York (EDT) — so New York reads as
+        // Yesterday relative to a DISPLAYED Beijing baseline, regardless of
+        // where the host system happens to be.
+        let store = makeStore()
+        store.currentZoneIdentifier = "Asia/Shanghai"
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        store.now = cal.date(from: DateComponents(year: 2026, month: 8, day: 18, hour: 1, minute: 0))!
+
+        let newYork = ZoneEntry(id: "America/New_York", label: "New York", region: "US", color: "#30D158")
+        XCTAssertEqual(store.dayDifference(for: newYork), -1, "NY is on the previous day vs displayed Beijing")
+
+        let tokyo = ZoneEntry(id: "Asia/Tokyo", label: "Tokyo", region: "JP", color: "#BF5AF2")
+        XCTAssertEqual(store.dayDifference(for: tokyo), 0, "Tokyo shares Beijing's calendar day here")
     }
 
     // MARK: - Current zone highlight (uuid)
@@ -651,6 +693,40 @@ final class TravelTimeTests: XCTestCase {
             } else {
                 XCTFail("Wrong error: \(error)")
             }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testDetectSurfacesRateLimitOnHTTP429() async {
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil, headerFields: nil)!,
+             Data())
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        do {
+            _ = try await LocationDetector.detect(session: makeMockSession())
+            XCTFail("Expected rate-limit error")
+        } catch let error as DetectionError {
+            guard case .rateLimited = error else { XCTFail("Wrong error: \(error)"); return }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testDetectSurfacesRateLimitOnHTTP403() async {
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!,
+             Data())
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        do {
+            _ = try await LocationDetector.detect(session: makeMockSession())
+            XCTFail("Expected rate-limit error")
+        } catch let error as DetectionError {
+            guard case .rateLimited = error else { XCTFail("Wrong error: \(error)"); return }
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
