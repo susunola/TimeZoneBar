@@ -42,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPanel()
         startTimer()
+        // Silently probe the location once at launch; if the detected zone
+        // differs from the displayed one, the panel shows a confirmation card
+        // (the admin-gated system switch only happens on user confirmation).
+        store.autoDetectOnLaunch()
         // Do NOT auto-show the panel on launch — in Dock mode the app opens
         // quietly and the user opens the window by clicking the Dock icon.
         NSWorkspace.shared.notificationCenter.addObserver(

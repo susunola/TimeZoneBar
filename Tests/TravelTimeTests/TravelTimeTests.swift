@@ -456,6 +456,24 @@ final class TravelTimeTests: XCTestCase {
         XCTAssertFalse(a === d, "Different format must not share a formatter")
     }
 
+    // MARK: - Launch-time auto detection (TimeZoneStore.shouldSurfaceDetection)
+
+    @MainActor
+    func testShouldSurfaceDetection() {
+        // Silent launch detection: already on the detected zone -> stay quiet.
+        XCTAssertFalse(TimeZoneStore.shouldSurfaceDetection(timezone: "Asia/Bangkok",
+                                                            currentZone: "Asia/Bangkok",
+                                                            silent: true))
+        // Silent launch detection: travelled elsewhere -> surface the card.
+        XCTAssertTrue(TimeZoneStore.shouldSurfaceDetection(timezone: "Asia/Tokyo",
+                                                           currentZone: "Asia/Bangkok",
+                                                           silent: true))
+        // Manual detection always surfaces, even when the zone matches.
+        XCTAssertTrue(TimeZoneStore.shouldSurfaceDetection(timezone: "Asia/Bangkok",
+                                                           currentZone: "Asia/Bangkok",
+                                                           silent: false))
+    }
+
     // MARK: - switchTo state machine (TimeZoneStore + MockSwitcher)
 
     @MainActor

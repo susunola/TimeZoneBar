@@ -538,7 +538,7 @@ final class TimeZoneStore: ObservableObject {
         }
     }
 
-    func detectLocation() {
+    func detectLocation(silentIfMatchesCurrent: Bool = false) {
         guard !isDetecting else { return }
         isDetecting = true
         lastError = nil
@@ -555,13 +555,42 @@ final class TimeZoneStore: ObservableObject {
                         throw DetectionError.failed
                     }
                     defer { group.cancelAll() }
-                    detected = try await group.next()!
+                    let d = try await group.next()!
+                    // Launch-time auto-detection: if we're already on the
+                    // detected zone, stay quiet — no card, no switch. This
+                    // avoids pestering the user at every launch when they
+                    // haven't moved.
+                    if !Self.shouldSurfaceDetection(timezone: d.timezone,
+                                                    currentZone: currentZoneIdentifier,
+                                                    silent: silentIfMatchesCurrent) {
+                        return
+                    }
+                    detected = d
                 }
             } catch {
-                lastError = error.localizedDescription
+                // Silent launch-time detection must not surface transient
+                // network errors (no connectivity is common at boot).
+                if !silentIfMatchesCurrent {
+                    lastError = error.localizedDescription
+                }
             }
             isDetecting = false
         }
+    }
+
+    /// Called once at app startup: silently probe the location and, if the
+    /// detected zone differs from the displayed one, surface the confirmation
+    /// card in the panel. The system time zone only changes when the user
+    /// confirms (that path is admin-gated).
+    func autoDetectOnLaunch() {
+        detectLocation(silentIfMatchesCurrent: true)
+    }
+
+    /// Whether a detected zone should surface the confirmation card.
+    /// Launch-time detection is silent when the user is already on the
+    /// detected zone (no card, no switch); manual detection always surfaces.
+    static func shouldSurfaceDetection(timezone: String, currentZone: String, silent: Bool) -> Bool {
+        !(silent && timezone == currentZone)
     }
 
     func confirmDetectedZone() {
