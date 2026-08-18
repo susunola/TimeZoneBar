@@ -71,17 +71,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Content height (points) for a given zone count and theme.
+    ///
+    /// Pure function so the sizing rule is unit-testable. The "fixed chrome"
+    /// estimate covers header (~180-240) + list top/bottom padding (~20) +
+    /// footer (~150), with extra allowance for the editorial header layout.
+    static func panelContentHeight(zoneCount: Int, theme: Theme) -> CGFloat {
+        let fixedChrome: CGFloat = theme == .editorial ? 400 : 360
+        return max(460, fixedChrome + CGFloat(zoneCount) * theme.rowHeight + 24)
+    }
+
     /// Grows / shrinks the window so it exactly fits the number of zone rows.
     private func updatePanelHeight() {
         // setupPanel may not have run yet (e.g. a zones change during init),
         // so guard the implicit-unwrapped window.
         guard let panel = self.panel else { return }
-        let rowH = store.theme.rowHeight
-        // header (~180-240) + list top/bottom padding (~20) + footer (~150)
-        let fixedChrome: CGFloat = store.theme == .editorial ? 400 : 360
-        let wanted = fixedChrome + CGFloat(store.zones.count) * rowH + 24
+        let wanted = Self.panelContentHeight(zoneCount: store.zones.count, theme: store.theme)
         let width = panel.frame.width
-        panel.setContentSize(NSSize(width: width, height: max(460, wanted)))
+        panel.setContentSize(NSSize(width: width, height: wanted))
         panel.layoutIfNeeded()
     }
 
@@ -148,6 +155,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.contentView = hosting
         p.center()
         self.panel = p
+        // Size the window for the *current* zone list. The store's
+        // onZonesChanged callback is assigned in applicationDidFinishLaunching,
+        // which runs after `private let store = TimeZoneStore()` has already
+        // loaded the zones (and fired their didSet), so the callback could
+        // never size the initial window — it stayed at the hardcoded height
+        // above no matter how many zones were loaded. This call closes that gap.
+        updatePanelHeight()
     }
 
     private func togglePanel() {

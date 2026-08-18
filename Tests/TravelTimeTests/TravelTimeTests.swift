@@ -170,4 +170,72 @@ final class TravelTimeTests: XCTestCase {
         }
         XCTAssertEqual(seen.count, TimeZoneStore.zonePalette.count)
     }
+
+    // MARK: - Panel auto-height (AppDelegate)
+
+    /// Regression for the launch-size bug: the window stayed at its hardcoded
+    /// initial height because updatePanelHeight() was only reachable through
+    /// store callbacks assigned after the store had already loaded its zones.
+    /// The sizing rule is now a pure function; these pin it down.
+    @MainActor
+    func testPanelContentHeightScalesWithZoneCount() {
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 3, theme: .minimal), 540)
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 12, theme: .minimal), 1008)
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 3, theme: .midnight), 540)
+    }
+
+    @MainActor
+    func testPanelContentHeightEditorialUsesMoreChrome() {
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 3, theme: .editorial), 622)
+    }
+
+    @MainActor
+    func testPanelContentHeightHasMinimum() {
+        // Even a single zone must not collapse below the header+footer floor.
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 0, theme: .minimal), 460)
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 1, theme: .minimal), 460)
+    }
+
+    // MARK: - App bundle discovery (Updater)
+
+    /// Regression for the update bug: releases up to v1.3.3 extract to
+    /// TimeZoneBar.app while the updater hardcoded TravelTime.app, so the
+    /// post-unzip guard always failed ("Could not unzip the installer").
+    func testAppBundleFindsLegacyName() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tzbar-test-legacy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("TimeZoneBar.app"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let found = Updater.appBundle(in: dir)
+        XCTAssertEqual(found?.lastPathComponent, "TimeZoneBar.app")
+    }
+
+    func testAppBundleFindsCurrentName() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tzbar-test-current-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("TravelTime.app"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let found = Updater.appBundle(in: dir)
+        XCTAssertEqual(found?.lastPathComponent, "TravelTime.app")
+    }
+
+    func testAppBundleIgnoresZipAndScratchFiles() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tzbar-test-nobundle-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // An extracted archive dir still holds the zip and any notes; none of
+        // these is an app bundle, so discovery must come up empty.
+        try Data("zip".utf8).write(to: dir.appendingPathComponent("TravelTime.app.zip"))
+        try Data("notes".utf8).write(to: dir.appendingPathComponent("notes.txt"))
+
+        XCTAssertNil(Updater.appBundle(in: dir))
+    }
 }

@@ -35,16 +35,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed a FAQ entry that told users to enable the menu bar icon under
   *Siri & Spotlight → Spotlight Privacy*. No such mechanism exists, and nothing
   in the codebase relates to Spotlight.
+- **Panel did not size to its zones at launch.** `AppDelegate` only called
+  `updatePanelHeight()` from store callbacks assigned *after* the store had
+  already loaded its zones, so the initial window stayed at the hardcoded 640
+  pt regardless of zone count (measured 672 pt at both 3 and 12 zones). The
+  sizing rule is now a pure static function `AppDelegate.panelContentHeight`,
+  exercised by three new unit tests, and `setupPanel()` calls it explicitly
+  once the store and window exist.
+- **In-app update could not install legacy releases.** `Updater` hardcoded
+  `TravelTime.app` after extraction, so any release that extracted to the
+  former `TimeZoneBar.app` (every published release up to and including
+  v1.3.3) failed with "Could not unzip the installer". Resolution now scans
+  the unzip directory for the first `.app` bundle, extracted into a tested
+  pure helper `Updater.appBundle(in:)`. Combined with the new
+  `./build.sh release` flow, users on v1.3.3 can now upgrade in place.
 
 ### Known issues
-- In-app update cannot install releases up to and including v1.3.3: those assets
-  are named `TimeZoneBar.app.zip` and extract to `TimeZoneBar.app`, while
-  `Updater.swift` expects `TravelTime.app`. `./build.sh release` now emits a
-  correctly named archive, so the next published release resolves this.
-- The panel does not auto-size to the number of zones. `updatePanelHeight()`
-  exists but is only reachable through store callbacks assigned after the store
-  has already initialised, so the window keeps its initial height — measured
-  identical at 3 and at 12 zones.
+- *None at the time of writing. If you find one, open an issue — see
+  `CONTRIBUTING.md` for the report template.*
 
 ## [1.3.3] — 2026-08-17
 

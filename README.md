@@ -38,12 +38,12 @@ No dependencies, no Electron, no telemetry, no account. One ~700 KB binary.
 | **One-click zone switching** | Click a row to move your entire Mac to that zone. Uses the standard macOS authorization dialog — no password is ever stored or seen by the app. |
 | **Day/night at a glance** | A sun or moon per row, computed from a solar-elevation approximation, tells you whether it is a reasonable hour to call. |
 | **DST badge** | Zones currently on daylight saving time are tagged, so a shifted offset is never a surprise. |
-| **Live zone management** | Hover a row to replace or remove it; add from 24 preset cities. Duplicate IANA IDs are handled correctly — Berlin and Frankfurt can coexist as separate rows. |
+| **Live zone management** | Hover a row to replace or remove it; add from 24 preset cities. The panel grows or shrinks to fit the list. Duplicate IANA IDs are handled correctly — Berlin and Frankfurt can coexist as separate rows. |
 | **IP geolocation** | "Detect current location" resolves your city and zone, previews it, and switches on confirmation. |
 | **Conflict detection** | If macOS *Set time zone automatically* is on, it will silently revert manual switches. The panel warns you and deep-links to the relevant System Settings pane. |
 | **Four themes** | Minimal, Glass, Midnight, Editorial — switchable at runtime from Settings → Appearance. |
 | **Custom avatar** | Drop in any image; stored under `~/Library/Application Support/TravelTime/`. |
-| **In-app updates** | Checks GitHub Releases and verifies the download against a SHA-256 published in the release notes before installing. See [Known limitations](#known-limitations). |
+| **In-app updates** | Checks GitHub Releases and verifies the download against a SHA-256 published in the release notes before installing. Works for both the current and the legacy `TimeZoneBar.app`-named assets. |
 
 ## Themes
 
@@ -164,7 +164,9 @@ Design notes worth knowing before you touch the code:
 - **Both geo endpoints are HTTPS** (`ip-api.com`, falling back to `ipapi.co`) for
   the same reason: a spoofable plaintext response would feed a privileged call.
 - **Updates fail closed.** If no SHA-256 is found in the release notes, or it does
-  not match the download, installation is aborted.
+  not match the download, installation is aborted. The post-extraction bundle is
+  located by `.app` extension (not by name), so legacy `TimeZoneBar.app` and
+  current `TravelTime.app` releases both upgrade in place.
 - **Zone rows are identified by UUID, not IANA ID**, because IANA IDs are not
   unique per city (Berlin and Frankfurt share `Europe/Berlin`). Persisted
   payloads from before the UUID field migrate on decode.
@@ -178,17 +180,6 @@ Design notes worth knowing before you touch the code:
 
 Documented rather than hidden:
 
-- **In-app update cannot install the currently published release.** Assets up to
-  and including v1.3.3 are named `TimeZoneBar.app.zip` (the app's former name)
-  and unzip to `TimeZoneBar.app`, while `Updater.swift` looks for
-  `TravelTime.app` after extraction. `./build.sh release` now produces a
-  correctly named `TravelTime-<version>.app.zip`, so the next release fixes
-  this; until then, update manually.
-- **The panel does not resize to fit your zones.** `AppDelegate` contains an
-  auto-height routine, but it is only wired to store callbacks that are assigned
-  after the store has already initialised, so the window stays at its initial
-  size. Measured identical (672pt) with 3 zones and with 12. With many zones the
-  list scrolls instead of growing.
 - **Not notarized.** Every release needs the Gatekeeper step above.
 - **Day/night is approximate.** Latitude/longitude come from a 23-entry lookup
   table; zones outside it fall back to a longitude derived from the UTC offset at

@@ -148,8 +148,11 @@ final class Updater: ObservableObject {
                 return
             }
 
-            let newApp = tmp.appendingPathComponent("TravelTime.app")
-            guard FileManager.default.fileExists(atPath: newApp.path) else {
+            // The .app inside the zip may be named either TravelTime.app
+            // (current) or TimeZoneBar.app (releases up to v1.3.3). Resolve it
+            // by extension so both extract fine, then verify it is a bundle.
+            guard let newApp = Self.appBundle(in: tmp),
+                  FileManager.default.fileExists(atPath: newApp.path) else {
                 state = .error("Could not unzip the installer")
                 return
             }
@@ -210,5 +213,24 @@ final class Updater: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// Finds the app bundle inside an extracted archive directory.
+    ///
+    /// Releases up to v1.3.3 named the bundle `TimeZoneBar.app` (the app's
+    /// former name); current ones use `TravelTime.app`. Resolving by the
+    /// `.app` extension instead of hardcoding a name means both extract fine.
+    /// `ditto -xk` does not produce a `__MACOSX` sibling, but it is excluded
+    /// defensively anyway.
+    nonisolated static func appBundle(in directory: URL) -> URL? {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return nil }
+        return entries.first {
+            guard $0.pathExtension == "app", $0.lastPathComponent != "__MACOSX" else { return false }
+            let isDir = (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
+            return isDir == true
+        }
     }
 }
