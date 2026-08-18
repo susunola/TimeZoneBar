@@ -20,7 +20,6 @@ struct ThemePalette {
     let useAccentBars: Bool    // 4px accent bar on rows (minimal / midnight)
     let detectIsSolid: Bool    // solid accent detect button (glass)
     let panelRadius: CGFloat
-    let rowHeight: CGFloat     // used for auto window height
 
     static func palette(for theme: Theme) -> ThemePalette {
         switch theme {
@@ -40,8 +39,7 @@ struct ThemePalette {
                                 useCards: false,
                                 useAccentBars: true,
                                 detectIsSolid: false,
-                                panelRadius: 16,
-                                rowHeight: 52)
+                                panelRadius: 16)
         case .glass:
             return ThemePalette(window: Color(hex: "#F5F7FA"),
                                 surface: Color(hex: "#FFFFFF"),
@@ -58,8 +56,7 @@ struct ThemePalette {
                                 useCards: true,
                                 useAccentBars: false,
                                 detectIsSolid: true,
-                                panelRadius: 24,
-                                rowHeight: 82)
+                                panelRadius: 24)
         case .midnight:
             return ThemePalette(window: Color(hex: "#1C1C1E"),
                                 surface: Color(hex: "#2C2C2E"),
@@ -76,8 +73,7 @@ struct ThemePalette {
                                 useCards: false,
                                 useAccentBars: true,
                                 detectIsSolid: false,
-                                panelRadius: 20,
-                                rowHeight: 52)
+                                panelRadius: 20)
         case .editorial:
             return ThemePalette(window: Color(hex: "#FAFAF8"),
                                 surface: Color(hex: "#FAFAF8"),
@@ -94,8 +90,7 @@ struct ThemePalette {
                                 useCards: false,
                                 useAccentBars: false,
                                 detectIsSolid: false,
-                                panelRadius: 4,
-                                rowHeight: 66)
+                                panelRadius: 4)
         }
     }
 }
@@ -790,10 +785,18 @@ extension Color {
             self.init(.sRGB, red: 0.5, green: 0.5, blue: 0.5, opacity: 1)
             return
         }
-        let r = Double((value >> 16) & 0xFF) / 255.0
-        let g = Double((value >> 8) & 0xFF) / 255.0
-        let b = Double(value & 0xFF) / 255.0
-        let a = s.count == 8 ? Double(value & 0xFF) / 255.0 : 1
-        self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
+        if s.count == 8 {
+            // #RRGGBBAA — alpha lives in the low byte.
+            let r = Double((value >> 24) & 0xFF) / 255.0
+            let g = Double((value >> 16) & 0xFF) / 255.0
+            let b = Double((value >> 8) & 0xFF) / 255.0
+            let a = Double(value & 0xFF) / 255.0
+            self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
+        } else {
+            let r = Double((value >> 16) & 0xFF) / 255.0
+            let g = Double((value >> 8) & 0xFF) / 255.0
+            let b = Double(value & 0xFF) / 255.0
+            self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
+        }
     }
 }

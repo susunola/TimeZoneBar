@@ -1,4 +1,6 @@
 import XCTest
+import AppKit   // NSColor bridging for Color component assertions
+import SwiftUI
 @testable import TravelTime
 
 /// Unit tests for the pure logic in TravelTime.
@@ -306,5 +308,37 @@ final class TravelTimeTests: XCTestCase {
         let geo = try JSONDecoder().decode(GeoResult.self, from: Data(json.utf8))
         XCTAssertEqual(geo.error, true)
         XCTAssertEqual(geo.reason, "Too Many Requests")
+    }
+
+    // MARK: - Color(hex:) parsing
+
+    @MainActor
+    func testColorHexParsing() {
+        func rgba(_ c: Color) -> (r: Double, g: Double, b: Double, a: Double) {
+            let n = NSColor(c).usingColorSpace(.sRGB)!
+            return (n.redComponent, n.greenComponent, n.blueComponent, n.alphaComponent)
+        }
+
+        let red = rgba(Color(hex: "#FF0000"))
+        XCTAssertEqual(red.r, 1.0, accuracy: 0.001)
+        XCTAssertEqual(red.g, 0.0, accuracy: 0.001)
+        XCTAssertEqual(red.a, 1.0, accuracy: 0.001)
+
+        let short = rgba(Color(hex: "#0f0"))
+        XCTAssertEqual(short.g, 1.0, accuracy: 0.001)
+        XCTAssertEqual(short.r, 0.0, accuracy: 0.001)
+
+        // 8-digit #RRGGBBAA: alpha is the low byte, channels shift left by 8.
+        // (0x80 quantizes to 128/255 ≈ 0.502, hence 0.01 tolerance.)
+        let alpha = rgba(Color(hex: "#FF000080"))
+        XCTAssertEqual(alpha.r, 1.0, accuracy: 0.001)
+        XCTAssertEqual(alpha.g, 0.0, accuracy: 0.001)
+        XCTAssertEqual(alpha.a, 0.5, accuracy: 0.01)
+
+        // Invalid input falls back to neutral gray, not black. (NSColor
+        // quantizes 0.5 to 128/255, hence the looser tolerance.)
+        let bad = rgba(Color(hex: "notacolor"))
+        XCTAssertEqual(bad.r, 0.5, accuracy: 0.01)
+        XCTAssertEqual(bad.g, 0.5, accuracy: 0.01)
     }
 }

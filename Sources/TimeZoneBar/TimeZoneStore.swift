@@ -256,10 +256,17 @@ final class TimeZoneStore: ObservableObject {
     /// Drops the current-row pointer when its row was deleted / replaced by
     /// Restore Defaults. Falls back to the first row with the same IANA id so
     /// the highlight (and the Remove-disabled state) stays sane — e.g. after
-    /// Restore Defaults the Beijing row is highlighted again.
+    /// Restore Defaults the Beijing row is highlighted again. The fallback is
+    /// persisted so a relaunch doesn't re-read a stale uuid.
     private func sanitizeCurrentZone() {
         guard let u = currentZoneUUID, !zones.contains(where: { $0.uuid == u }) else { return }
-        currentZoneUUID = zones.first { $0.id == currentZoneIdentifier }?.uuid
+        let fallback = zones.first { $0.id == currentZoneIdentifier }?.uuid
+        currentZoneUUID = fallback
+        if let fallback {
+            defaults.set(fallback.uuidString, forKey: Self.currentZoneUUIDKey)
+        } else {
+            defaults.removeObject(forKey: Self.currentZoneUUIDKey)
+        }
     }
 
     // MARK: - Auto timezone monitoring
@@ -305,8 +312,10 @@ final class TimeZoneStore: ObservableObject {
     // MARK: - Display helpers
 
     /// Cached DateFormatters — constructing one is expensive and the panel
-    /// redraws every minute, so reuse per (format, timezone) pair. Only ever
-    /// touched on the main actor.
+    /// redraws every minute, so reuse per (format, timezone) pair. Bounded by
+    /// (number of zones × 2 formats), so it can never grow unbounded. This is
+    /// mutable static state: only ever touch it from the MainActor (both the
+    /// store and the SwiftUI views are MainActor-isolated).
     private static var formatterCache: [String: DateFormatter] = [:]
 
     static func cachedFormatter(format: String, timeZone: TimeZone? = nil) -> DateFormatter {
@@ -398,24 +407,13 @@ final class TimeZoneStore: ObservableObject {
     private static func isSunUp(latitude: Double, longitude: Double, date: Date, timeZone: TimeZone) -> Bool {
         // Convert to UTC
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(abbreviation: "UTC")!
+        cal.timeZone = .gmt
 
-        let year = cal.component(.year, from: date)
-        let month = cal.component(.month, from: date)
-        let day = cal.component(.day, from: date)
         let hour = cal.component(.hour, from: date)
         let minute = cal.component(.minute, from: date)
 
-        // Calculate day of year
-        var dayOfYear = 0
-        let daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        for i in 0..<(month - 1) {
-            dayOfYear += daysInMonth[i]
-        }
-        dayOfYear += day
-        if month > 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
-            dayOfYear += 1
-        }
+        // Day of year (handles leap years correctly via the calendar)
+        let dayOfYear = cal.ordinality(of: .day, in: .year, for: date) ?? 1
 
         // Solar declination (simplified)
         let declination = -23.44 * cos((2.0 * .pi / 365.0) * Double(dayOfYear + 10))
