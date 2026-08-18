@@ -7,10 +7,11 @@ NAME="TravelTime"
 DIST="dist"
 APP="$DIST/$NAME.app"
 
-# --- 清理 dist：只保留当前最新的 .app --------------------------------
-# macOS Launchpad 会把 dist 里每一个 .app 和 zip 里的 Info.plist 都渲染成
-# 独立图标（幽灵图标问题）。这里每次 build 前把 dist 里的所有 zip 和
-# 非当前名的 .app 全部清掉，保证 dist 永远只有一份 TravelTime.app。
+# --- Clean dist: keep only the current .app -------------------------------
+# macOS Launchpad renders every .app in dist/ — and every zip's Info.plist —
+# as its own icon ("ghost icon" issue). Before each build we remove all zips
+# and any .app that is not the current one, so dist always holds exactly one
+# TravelTime.app.
 echo "==> 0/4 Cleaning dist (old artifacts)"
 mkdir -p "$DIST"
 rm -rf "$DIST"/*.zip

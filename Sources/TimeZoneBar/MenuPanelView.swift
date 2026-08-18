@@ -231,18 +231,18 @@ struct QuoteView: View {
     let palette: ThemePalette
 
     private static let quotes: [String] = [
-        "时间是最公平的，给每个人都是二十四小时。",
-        "一寸光阴一寸金，寸金难买寸光阴。",
-        "逝者如斯夫，不舍昼夜。",
-        "人生天地之间，若白驹过隙，忽然而已。",
-        "时间就像海绵里的水，只要愿挤，总还是有的。",
-        "把活着的每一天，都看作生命的最后一天。",
-        "盛年不重来，一日难再晨。及时当勉励，岁月不待人。",
-        "莫等闲，白了少年头，空悲切。",
-        "世界最快又最慢、最长又最短、最平凡又最珍贵，是时间。",
-        "你不能两次踏进同一条河，因为新的水不断流过你的身旁。",
-        "时间没有现在，永恒没有未来，也没有过去。",
-        "昨日之日不可留，今日之日多烦忧。"
+        "Time is the most fair — everyone gets twenty-four hours a day.",
+        "An inch of time is an inch of gold, but gold cannot buy time.",
+        "Time flows like a river — it never stops, day or night.",
+        "Life passes like a white colt glimpsed through a crack.",
+        "Time is like water in a sponge — squeeze and there is always more.",
+        "Live each day as if it were your last.",
+        "No prime years come twice, no morning repeats itself.",
+        "Don't wait idly, lamenting the grey in your youth.",
+        "Nothing is as fast and as slow, as long and as short, as common and as precious as time.",
+        "You never step into the same river twice — new water always flows past you.",
+        "Time has no present, eternity has no future or past.",
+        "Yesterday cannot be recalled; today holds its own worries."
     ]
 
     private var quote: String {

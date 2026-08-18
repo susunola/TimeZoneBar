@@ -17,19 +17,19 @@ struct DetectedZone: Equatable {
 // MARK: - Theme
 
 enum Theme: String, CaseIterable, Identifiable {
-    case minimal    // 原生极简
-    case glass      // 高级玻璃
-    case midnight   // 深夜沉浸
-    case editorial  // 杂志编辑
+    case minimal
+    case glass
+    case midnight
+    case editorial
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .minimal: return "原生极简"
-        case .glass: return "高级玻璃"
-        case .midnight: return "深夜沉浸"
-        case .editorial: return "杂志编辑"
+        case .minimal: return "Minimal"
+        case .glass: return "Glass"
+        case .midnight: return "Midnight"
+        case .editorial: return "Editorial"
         }
     }
 }
