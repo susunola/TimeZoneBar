@@ -257,7 +257,10 @@ struct SettingsView: View {
                 }
             }
             .padding(20)
-            .frame(width: 480)
+            // minWidth (not a fixed width): a fixed frame would pin the
+            // content to 480 pt and block horizontal window resizing even
+            // though the NSWindow styleMask allows it.
+            .frame(minWidth: 480)
         }
         .onAppear {
             if isBundled {
