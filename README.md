@@ -161,12 +161,14 @@ Design notes worth knowing before you touch the code:
   cannot hang the UI or leak a child process. The zone identifier is validated
   against `TimeZone.knownTimeZoneIdentifiers` *before* it reaches a shell string
   — geolocation responses are untrusted input on a privileged path.
-- **Both geo endpoints are HTTPS** (`ip-api.com`, falling back to `ipapi.co`) for
+- **Both geo endpoints are HTTPS** (`ipwho.is`, falling back to `ipapi.co`) for
   the same reason: a spoofable plaintext response would feed a privileged call.
+  ip-api.com is not used — its free tier has no HTTPS, and ATS blocks plain HTTP.
 - **Updates fail closed.** If no SHA-256 is found in the release notes, or it does
   not match the download, installation is aborted. The post-extraction bundle is
   located by `.app` extension (not by name), so legacy `TimeZoneBar.app` and
-  current `TravelTime.app` releases both upgrade in place.
+  current `TravelTime.app` releases both upgrade in place. The install replaces
+  the running bundle wherever it lives (`~/Applications` included).
 - **Zone rows are identified by UUID, not IANA ID**, because IANA IDs are not
   unique per city (Berlin and Frankfurt share `Europe/Berlin`). Persisted
   payloads from before the UUID field migrate on decode.

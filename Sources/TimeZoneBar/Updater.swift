@@ -156,9 +156,13 @@ final class Updater: ObservableObject {
                 state = .error("Could not unzip the installer")
                 return
             }
-            // With admin rights: remove the old app, copy the new one, relaunch
+            // With admin rights: remove the old app, copy the new one, relaunch.
+            // Install to the CURRENT bundle's location, not a hardcoded path,
+            // so an app living in ~/Applications updates in place instead of
+            // spawning a second copy in /Applications.
+            let appPath = Bundle.main.bundlePath
             let script = """
-            do shell script "rm -rf " & quoted form of "/Applications/TravelTime.app" & " && cp -R " & quoted form of "\(newApp.path)" & " /Applications/TravelTime.app && open " & quoted form of "/Applications/TravelTime.app" with administrator privileges
+            do shell script "rm -rf " & quoted form of "\(appPath)" & " && cp -R " & quoted form of "\(newApp.path)" & " " & quoted form of "\(appPath)" & " && open " & quoted form of "\(appPath)" with administrator privileges
             """
             try await PrivilegedRunner.run(script: script)
             // Clean up the download/unzip scratch dir before relaunching.
@@ -220,17 +224,24 @@ final class Updater: ObservableObject {
     /// Releases up to v1.3.3 named the bundle `TimeZoneBar.app` (the app's
     /// former name); current ones use `TravelTime.app`. Resolving by the
     /// `.app` extension instead of hardcoding a name means both extract fine.
-    /// `ditto -xk` does not produce a `__MACOSX` sibling, but it is excluded
-    /// defensively anyway.
+    /// `contentsOfDirectory` makes no ordering promise, so when several
+    /// bundles exist we prefer the current name and otherwise fall back to a
+    /// deterministic (sorted) pick rather than whatever the filesystem
+    /// happened to list first. `ditto -xk` does not produce a `__MACOSX`
+    /// sibling, but it is excluded defensively anyway.
     nonisolated static func appBundle(in directory: URL) -> URL? {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
         ) else { return nil }
-        return entries.first {
+        let bundles = entries.filter {
             guard $0.pathExtension == "app", $0.lastPathComponent != "__MACOSX" else { return false }
             let isDir = (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
             return isDir == true
         }
+        if let current = bundles.first(where: { $0.lastPathComponent == "TravelTime.app" }) {
+            return current
+        }
+        return bundles.sorted { $0.lastPathComponent < $1.lastPathComponent }.first
     }
 }

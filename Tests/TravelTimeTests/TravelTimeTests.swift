@@ -238,4 +238,73 @@ final class TravelTimeTests: XCTestCase {
 
         XCTAssertNil(Updater.appBundle(in: dir))
     }
+
+    // MARK: - Day label (MenuPanelView)
+
+    /// Regression for the editorial theme: the row label was hardcoded to
+    /// "Today" there, so Yesterday/Tomorrow rows were mislabelled. The label
+    /// is now a shared pure function used by every theme.
+    @MainActor
+    func testDayLabel() {
+        XCTAssertEqual(TimeZoneStore.dayLabel(for: -1), "Yesterday")
+        XCTAssertEqual(TimeZoneStore.dayLabel(for: 0), "Today")
+        XCTAssertEqual(TimeZoneStore.dayLabel(for: 1), "Tomorrow")
+        // Any other value (or a day difference larger than one) reads as Today
+        // — consistent with the old switch default.
+        XCTAssertEqual(TimeZoneStore.dayLabel(for: 5), "Today")
+    }
+
+    // MARK: - Panel height screen cap (AppDelegate)
+
+    /// Regression for windows growing past the visible screen: with 12 glass
+    /// zones the raw formula wants 1396 pt, which the system then clamps
+    /// unpredictably. The clamp must be explicit, never below the 460 pt floor.
+    @MainActor
+    func testPanelContentHeightClampsToScreen() {
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 12, theme: .glass, maxContentHeight: 900), 900)
+        // Small lists are unaffected by the cap.
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 3, theme: .minimal, maxContentHeight: 900), 540)
+        // The cap never pushes the window below the header+footer floor.
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 12, theme: .glass, maxContentHeight: 200), 460)
+        // No cap: raw formula (existing behaviour, existing tests).
+        XCTAssertEqual(AppDelegate.panelContentHeight(zoneCount: 12, theme: .minimal), 1008)
+    }
+
+    // MARK: - Geolocation response shapes (LocationDetector)
+
+    /// ipwho.is nests the timezone: {"timezone": {"id": "Asia/Bangkok"}}.
+    func testGeoResultDecodesIpWhoIsNestedTimezone() throws {
+        let json = #"{"timezone":{"id":"Asia/Bangkok","abbreviation":"ICT"},"city":"Bangkok","country":"Thailand"}"#
+        let geo = try JSONDecoder().decode(GeoResult.self, from: Data(json.utf8))
+        XCTAssertEqual(geo.timezone, "Asia/Bangkok")
+        XCTAssertEqual(geo.city, "Bangkok")
+        XCTAssertEqual(geo.country_name ?? geo.country, "Thailand")
+        XCTAssertNil(geo.error)
+    }
+
+    /// ipapi.co keeps the timezone flat and calls the country country_name.
+    func testGeoResultDecodesIpApiFlatTimezone() throws {
+        let json = #"{"timezone":"Asia/Bangkok","city":"Bangkok","country_name":"Thailand"}"#
+        let geo = try JSONDecoder().decode(GeoResult.self, from: Data(json.utf8))
+        XCTAssertEqual(geo.timezone, "Asia/Bangkok")
+        XCTAssertEqual(geo.city, "Bangkok")
+        XCTAssertEqual(geo.country_name ?? geo.country, "Thailand")
+    }
+
+    /// ipapi.co throttles with HTTP 200 + {"error": true, "reason": ...}.
+    func testGeoResultDecodesIpApiRateLimitError() throws {
+        let json = #"{"error":true,"reason":"RateLimited","wait":1.0}"#
+        let geo = try JSONDecoder().decode(GeoResult.self, from: Data(json.utf8))
+        XCTAssertEqual(geo.error, true)
+        XCTAssertEqual(geo.reason, "RateLimited")
+        XCTAssertNil(geo.timezone)
+    }
+
+    /// ipwho.is errors with an object: {"error": {"code": ..., "message": ...}}.
+    func testGeoResultDecodesIpWhoIsErrorObject() throws {
+        let json = #"{"success":false,"error":{"code":429,"message":"Too Many Requests"}}"#
+        let geo = try JSONDecoder().decode(GeoResult.self, from: Data(json.utf8))
+        XCTAssertEqual(geo.error, true)
+        XCTAssertEqual(geo.reason, "Too Many Requests")
+    }
 }

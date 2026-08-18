@@ -50,6 +50,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pure helper `Updater.appBundle(in:)`. Combined with the new
   `./build.sh release` flow, users on v1.3.3 can now upgrade in place.
 
+### Added (1.3.4 review round)
+- `TimeZoneStore.dayLabel(for:)` — the Today/Yesterday/Tomorrow label as a
+  shared pure function with unit tests.
+
+### Fixed (1.3.4 review round)
+- **Editorial theme labelled every row "Today".** `MenuPanelView` hardcoded
+  the text in the editorial branch while the other three themes used
+  `dayLabel`, so cross-day zones (New York, Tokyo…) showed the wrong day.
+  All themes now share `TimeZoneStore.dayLabel(for:)`.
+- **Header and menu-bar dates used the host time zone.** The time shown is the
+  selected zone's, but the date beside it was formatted in the host zone, so
+  an hour either side of midnight could show 01:30 with the wrong weekday.
+  Both `dateText` and the optional menu-bar date now format in the displayed
+  zone.
+- **Location detection always failed on the primary endpoint.** ip-api.com's
+  free tier has no HTTPS at all, and ATS blocks plain HTTP, so every call
+  timed out and fell back to ipapi.co. The primary endpoint is now ipwho.is
+  (free, HTTPS). Also, both providers report throttling as HTTP 200 with an
+  `error` field, which the decoder previously misread; `GeoResult` now parses
+  the flat and nested shapes and surfaces a "rate-limited" message.
+- **Panel could grow past the screen.** With many zones the computed height
+  exceeded the visible frame and macOS clamped it unpredictably. The height is
+  now capped against `NSScreen.visibleFrame`.
+- **`build.sh` killed unrelated processes.** `pkill -9 -f TravelTime` matched
+  any command line containing the string (e.g. an editor with the repo open);
+  it now matches the deployed binary path exactly.
+- **Updater targeted a hardcoded `/Applications/TravelTime.app`.** An app
+  installed in `~/Applications` would have spawned a second copy. The updater
+  now replaces `Bundle.main.bundlePath`, and `appBundle(in:)` prefers
+  `TravelTime.app` deterministically instead of a filesystem-order first match.
+- **`Asia/Kolkata` coordinates were Kolkata's** while the picker labels it
+  New Delhi (about 45 minutes of sun-position drift). Now `(28.6, 77.2)`.
+- Removed the unused `BorderlessPanel` class.
+
+### Changed (1.3.4)
+- Version bumped to 1.3.4 — the previous release's fixes could never reach
+  users because `CFBundleShortVersionString` still said 1.3.3 and the updater
+  only fires on a strictly greater version.
+- Theme preview swatch now ticks from the store clock instead of `Date()`, so
+  the mini clock updates with the panel.
+
 ### Known issues
 - *None at the time of writing. If you find one, open an issue — see
   `CONTRIBUTING.md` for the report template.*

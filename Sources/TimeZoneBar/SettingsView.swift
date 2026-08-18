@@ -376,12 +376,14 @@ func themeDescription(_ theme: Theme) -> String {
 }
 
 struct ThemeSwatch: View {
+    @EnvironmentObject var store: TimeZoneStore
     let theme: Theme
 
     /// Show the real current time (via the cached formatter) instead of a
-    /// hardcoded "01:42" placeholder.
+    /// hardcoded "01:42" placeholder. Uses store.now so the preview keeps up
+    /// with the minute tick like the real panel does.
     private var timeText: String {
-        TimeZoneStore.cachedFormatter(format: "HH:mm").string(from: Date())
+        TimeZoneStore.cachedFormatter(format: "HH:mm").string(from: store.now)
     }
 
     var body: some View {

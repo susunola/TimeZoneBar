@@ -53,7 +53,10 @@ plutil -lint "$APP/Contents/Info.plist"
 codesign --verify --deep --strict "$APP" && echo "Signature verified"
 
 echo "==> 5/4 Deploying to /Applications (single source of truth)"
-pkill -9 -f "$NAME" 2>/dev/null || true
+# Match the running app's binary exactly — a bare -f "$NAME" would kill any
+# process whose command line merely contains "TravelTime" (e.g. an editor with
+# this project open).
+pkill -9 -f "/Applications/$NAME.app/Contents/MacOS/$NAME" 2>/dev/null || true
 sleep 1
 rm -rf "/Applications/$NAME.app"
 ditto "$APP" "/Applications/$NAME.app"

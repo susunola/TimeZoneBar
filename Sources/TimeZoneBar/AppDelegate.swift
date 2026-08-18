@@ -2,19 +2,6 @@ import AppKit
 import SwiftUI
 import Combine
 
-/// Borderless panel used for the main window. Being borderless it bypasses
-/// the macOS 26 FrontBoard scene-fence that refuses to render titled windows
-/// for self-signed (no Team ID) apps. We draw our own rounded squircle
-/// background + traffic lights in SwiftUI. `canBecomeKey` is required for a
-/// borderless window to accept clicks and become the key window.
-@MainActor
-private final class BorderlessPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
-    // Accept first responder for keyboard shortcuts (Cmd+W etc.)
-    override var acceptsFirstResponder: Bool { true }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     // Menu bar status item — best-effort. On macOS 26 the scene manager may
@@ -76,9 +63,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pure function so the sizing rule is unit-testable. The "fixed chrome"
     /// estimate covers header (~180-240) + list top/bottom padding (~20) +
     /// footer (~150), with extra allowance for the editorial header layout.
-    static func panelContentHeight(zoneCount: Int, theme: Theme) -> CGFloat {
+    /// Pass `maxContentHeight` to clamp against the visible screen; without it
+    /// (tests) the raw formula is returned.
+    static func panelContentHeight(zoneCount: Int, theme: Theme, maxContentHeight: CGFloat? = nil) -> CGFloat {
         let fixedChrome: CGFloat = theme == .editorial ? 400 : 360
-        return max(460, fixedChrome + CGFloat(zoneCount) * theme.rowHeight + 24)
+        let wanted = max(460, fixedChrome + CGFloat(zoneCount) * theme.rowHeight + 24)
+        guard let cap = maxContentHeight else { return wanted }
+        return min(wanted, max(460, cap))
+    }
+
+    /// Largest content height that fits on the visible screen (menu bar and
+    /// Dock excluded), leaving room for the title bar and a small margin.
+    private var maxPanelContentHeight: CGFloat {
+        guard let visible = NSScreen.main?.visibleFrame else { return .greatestFiniteMagnitude }
+        return max(460, visible.height - 60)
     }
 
     /// Grows / shrinks the window so it exactly fits the number of zone rows.
@@ -86,7 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // setupPanel may not have run yet (e.g. a zones change during init),
         // so guard the implicit-unwrapped window.
         guard let panel = self.panel else { return }
-        let wanted = Self.panelContentHeight(zoneCount: store.zones.count, theme: store.theme)
+        let wanted = Self.panelContentHeight(zoneCount: store.zones.count,
+                                             theme: store.theme,
+                                             maxContentHeight: maxPanelContentHeight)
         let width = panel.frame.width
         panel.setContentSize(NSSize(width: width, height: wanted))
         panel.layoutIfNeeded()

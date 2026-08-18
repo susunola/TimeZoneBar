@@ -323,7 +323,12 @@ final class TimeZoneStore: ObservableObject {
         let time = timeString(for: currentZoneIdentifier)
         let offset = Self.offsetString(for: currentZoneIdentifier)
         if showDateInMenuBar {
-            return "\(Self.cachedFormatter(format: "M/d").string(from: now)) \(time) \(offset)"
+            // Date is formatted in the DISPLAYED zone, matching the time.
+            let date = Self.cachedFormatter(
+                format: "M/d",
+                timeZone: TimeZone(identifier: currentZoneIdentifier)
+            ).string(from: now)
+            return "\(date) \(time) \(offset)"
         }
         return "\(time) \(offset)"
     }
@@ -362,7 +367,7 @@ final class TimeZoneStore: ObservableObject {
         "Asia/Seoul": (37.6, 127.0),
         "Asia/Singapore": (1.35, 103.8),
         "Asia/Dubai": (25.2, 55.3),
-        "Asia/Kolkata": (22.6, 88.4),
+        "Asia/Kolkata": (28.6, 77.2),   // New Delhi — the label used in commonZones
         "Australia/Sydney": (-33.9, 151.2),
         "Pacific/Auckland": (-36.8, 174.8),
         "Europe/London": (51.5, -0.1),
@@ -460,6 +465,16 @@ final class TimeZoneStore: ObservableObject {
         there.timeZone = tz
         let thereDay = there.startOfDay(for: now)
         return there.dateComponents([.day], from: hereDay, to: thereDay).day ?? 0
+    }
+
+    /// Human label for a day offset (-1 yesterday, 0 today, +1 tomorrow).
+    /// Pure function so every theme renders the same calendar truth.
+    static func dayLabel(for dayDifference: Int) -> String {
+        switch dayDifference {
+        case -1: return "Yesterday"
+        case 1: return "Tomorrow"
+        default: return "Today"
+        }
     }
 
     // MARK: - Actions

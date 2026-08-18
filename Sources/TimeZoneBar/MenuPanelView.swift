@@ -152,7 +152,13 @@ struct HeaderView: View {
     private var accent: Color { palette.accent }
 
     private var dateText: String {
-        TimeZoneStore.cachedFormatter(format: "EEEE, MMM d").string(from: store.now)
+        // The date must be formatted in the DISPLAYED zone, not the host one —
+        // otherwise the header can show 01:30 on a Monday with "Sunday"
+        // beneath it for an hour either side of midnight.
+        TimeZoneStore.cachedFormatter(
+            format: "EEEE, MMM d",
+            timeZone: TimeZone(identifier: store.currentZoneIdentifier)
+        ).string(from: store.now)
     }
 
     var body: some View {
@@ -355,11 +361,7 @@ struct ZoneRowView: View {
     private var offset: String { TimeZoneStore.offsetString(for: zone.id) }
 
     private var dayLabel: String {
-        switch dayDiff {
-        case -1: return "Yesterday"
-        case 1: return "Tomorrow"
-        default: return "Today"
-        }
+        TimeZoneStore.dayLabel(for: dayDiff)
     }
 
     private var accent: Color { Color(hex: zone.color) }
@@ -536,11 +538,11 @@ struct ZoneRowView: View {
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if isCurrent {
-                        Text("Today · UTC\(offset)")
+                        Text("\(dayLabel) · UTC\(offset)")
                             .font(.system(size: 11))
                             .foregroundColor(palette.accent)
                     } else {
-                        Text("Today · UTC\(offset)")
+                        Text("\(dayLabel) · UTC\(offset)")
                             .font(.system(size: 11))
                             .foregroundColor(palette.textTertiary)
                     }
