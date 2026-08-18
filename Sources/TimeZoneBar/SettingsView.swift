@@ -1,29 +1,19 @@
 import SwiftUI
 import ServiceManagement
 
+/// macOS System Settings–style window: sidebar of 6 categories on the left,
+/// detail page on the right. The user's last-selected category is persisted.
 struct SettingsView: View {
     @EnvironmentObject var store: TimeZoneStore
-    @StateObject private var updater = Updater()
-    @State private var addSelection = 0
-    @State private var launchAtLogin = false
-    @State private var showUninstallConfirm = false
-    @State private var isUninstalling = false
+    @State private var category: SettingsCategory = .display
+
+    private static let categoryKey = "settings.category"
 
     private var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
 
-    private var updateStatusText: String {
-        switch updater.state {
-        case .idle: return "Check GitHub for a new version"
-        case .checking: return "Checking…"
-        case .available(let v, _): return "Version \(v) is available — click Update to install it in place"
-        case .downloading: return "Downloading and installing, the app will relaunch…"
-        case .upToDate: return "You are running the latest version"
-        case .error(let msg): return msg
-        }
-    }
-
-    private var updateButtonTitle: String { updater.state.buttonTitle }
-
+    /// Common-zone list — duplicated in AppDelegate/SettingsView only as a
+    /// picker source, not as a data source. Kept here so the Settings can
+    /// suggest zones without coupling to the main panel's own data.
     static let commonZones: [(id: String, label: String, region: String)] = [
         ("Asia/Shanghai", "Beijing / Shanghai", "China"),
         ("Asia/Bangkok", "Bangkok", "Thailand"),
@@ -51,225 +41,301 @@ struct SettingsView: View {
         ("UTC", "Coordinated Universal Time", "")
     ]
 
-    /// The Settings picker keeps every common zone (including Berlin AND
-    /// Frankfurt — same IANA id, different cities) selectable via index tags.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("TravelTime Settings")
-                    .font(.title2)
-                    .padding(.bottom, 2)
-
-                // General
-                SettingsCard {
-                    if isBundled {
-                        Toggle("Launch at login", isOn: $launchAtLogin)
-                            .onChange(of: launchAtLogin) { _, newValue in
-                                do {
-                                    if newValue {
-                                        try SMAppService.mainApp.register()
-                                    } else {
-                                        try SMAppService.mainApp.unregister()
-                                    }
-                                } catch {
-                                    launchAtLogin = !newValue
-                                    let alert = NSAlert()
-                                    alert.messageText = "Failed to \(newValue ? "enable" : "disable") launch at login"
-                                    alert.informativeText = error.localizedDescription
-                                    alert.alertStyle = .warning
-                                    alert.runModal()
-                                }
-                            }
-                    }
-                }
-
-                // Time zones
-                SettingsCard(title: "Time Zones") {
-                    HStack(spacing: 8) {
-                        Picker("Add a time zone", selection: $addSelection) {
-                            // Index tags keep Berlin & Frankfurt (same tz id,
-                            // different names) both selectable.
-                            ForEach(Array(Self.commonZones.enumerated()), id: \.offset) { i, item in
-                                Text(item.region.isEmpty ? item.label : "\(item.label) · \(item.region)")
-                                    .tag(i)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 220)
-
-                        Button("Add") {
-                            guard addSelection < Self.commonZones.count else { return }
-                            let item = Self.commonZones[addSelection]
-                            // Dedupe by (id, label) — the same rule as the main
-                            // panel, so Berlin and Frankfurt can both exist.
-                            guard !store.zones.contains(where: { $0.id == item.id && $0.label == item.label }) else { return }
-                            store.zones.append(ZoneEntry(id: item.id,
-                                                         label: item.label,
-                                                         region: item.region,
-                                                         color: store.nextZoneColor()))
-                        }
-                        .disabled(addSelection >= Self.commonZones.count
-                                  || store.zones.contains {
-                                      $0.id == Self.commonZones[addSelection].id
-                                          && $0.label == Self.commonZones[addSelection].label
-                                  })
-                    }
-
-                    ForEach(store.zones, id: \.uuid) { zone in
-                        HStack {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color(hex: zone.color))
-                                .frame(width: 4, height: 16)
-                            Text("\(zone.label) (\(zone.id))")
-                                .font(.system(size: 13))
-                                .lineLimit(1)
-                            Spacer()
-                            if zone.uuid == store.currentZoneUUID {
-                                Text("Current")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.blue)
-                            }
-                            Button("Remove") {
-                                store.zones.removeAll { $0.uuid == zone.uuid }
-                            }
-                            .disabled(zone.uuid == store.currentZoneUUID)
-                            .accessibilityLabel("Remove \(zone.label)")
-                        }
-                        .padding(.vertical, 2)
-                    }
-
-                    Button("Restore Defaults") {
-                        store.zones = TimeZoneStore.defaultZones
-                    }
-                    .padding(.top, 4)
-                }
-
-                // Display
-                SettingsCard(title: "Display") {
-                    Toggle("Show date in the menu bar", isOn: $store.showDateInMenuBar)
-
-                    HStack(spacing: 10) {
-                        Text("Time format")
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            // Push the segmented control to its natural width even
-                            // at narrow window sizes; otherwise Spacer squeezes the
-                            // label into "Time for-mat".
-                            .layoutPriority(1)
-                        Picker("Time format", selection: $store.use24Hour) {
-                            Text("24-hour").tag(true)
-                            Text("12-hour").tag(false)
-                        }
-                        .pickerStyle(.segmented)
-                        .fixedSize()
-                    }
-                }
-
-                // Appearance (theme)
-                SettingsCard(title: "Appearance") {
-                    Text("Choose how the main panel looks. Changes apply immediately.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-
-                    ForEach(Theme.allCases) { theme in
-                        Button {
-                            store.theme = theme
-                        } label: {
-                            HStack(spacing: 10) {
-                                ThemeSwatch(theme: theme)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(theme.displayName)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.primary)
-                                    Text(themeDescription(theme))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                if store.theme == theme {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 15))
-                                        .foregroundColor(.blue)
-                                }
-                            }
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(store.theme == theme ? Color.blue.opacity(0.08) : Color.clear)
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                // Software update
-                SettingsCard {
-                    HStack(spacing: 10) {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 13))
-                            .foregroundColor(.blue)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Software Update")
-                                .font(.system(size: 13, weight: .medium))
-                            Text(updateStatusText)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Button(updateButtonTitle) {
-                            switch updater.state {
-                            case .available(_, let release):
-                                Task { await updater.update(release: release) }
-                            default:
-                                Task { await updater.check() }
-                            }
-                        }
-                        .disabled(updater.isBusy)
-                    }
-                }
-
-                // Uninstall
-                SettingsCard {
-                    HStack(spacing: 10) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 13))
-                            .foregroundColor(.red)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Uninstall TravelTime")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("Removes the app and all local data (requires authorization)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Button("Uninstall…", role: .destructive) {
-                            showUninstallConfirm = true
-                        }
-                        .disabled(isUninstalling)
-                    }
-                    .confirmationDialog("Uninstall TravelTime?",
-                                        isPresented: $showUninstallConfirm,
-                                        titleVisibility: .visible) {
-                        Button("Uninstall and Delete Data", role: .destructive) {
-                            uninstall()
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("The app will be deleted and quit immediately. If the icon lingers in Launchpad, run killall Dock in Terminal or log out and back in.")
-                    }
+        NavigationSplitView {
+            // Sidebar: list of categories. Width pinned to a comfortable range.
+            List(SettingsCategory.allCases, selection: $category) { cat in
+                Label(cat.title, systemImage: cat.systemImage)
+                    .tag(cat)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 280)
+        } detail: {
+            // Detail: the selected category.
+            Group {
+                switch category {
+                case .general:    CategoryGeneral()
+                case .display:    CategoryDisplay()
+                case .timeZones:  CategoryTimeZones()
+                case .appearance: CategoryAppearance()
+                case .update:     CategoryUpdate()
+                case .uninstall:  CategoryUninstall()
                 }
             }
-            .padding(20)
-            // minWidth (not a fixed width): a fixed frame would pin the
-            // content to 480 pt and block horizontal window resizing even
-            // though the NSWindow styleMask allows it.
-            .frame(minWidth: 480)
+            .frame(minWidth: 480, minHeight: 460)
+        }
+        .navigationTitle("TravelTime Settings")
+        .onAppear {
+            // Restore the last selected category.
+            if let raw = UserDefaults.standard.string(forKey: Self.categoryKey),
+               let saved = SettingsCategory(rawValue: raw) {
+                category = saved
+            }
+        }
+        .onChange(of: category) { _, newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.categoryKey)
+        }
+    }
+}
+
+/// Sidebar categories. The raw value is persisted so the user's last
+/// selected category is restored on the next launch.
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general, display, timeZones, appearance, update, uninstall
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general:    return "General"
+        case .display:    return "Display"
+        case .timeZones:  return "Time Zones"
+        case .appearance: return "Appearance"
+        case .update:     return "Software Update"
+        case .uninstall:  return "Uninstall"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general:    return "gearshape"
+        case .display:    return "rectangle.on.rectangle"
+        case .timeZones:  return "globe"
+        case .appearance: return "paintbrush"
+        case .update:     return "arrow.down.circle"
+        case .uninstall:  return "trash"
+        }
+    }
+}
+
+// MARK: - Category pages
+
+private struct CategoryGeneral: View {
+    @EnvironmentObject var store: TimeZoneStore
+    @State private var launchAtLogin = false
+
+    var body: some View {
+        SettingsForm {
+            if Bundle.main.bundleIdentifier != nil {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        do {
+                            if newValue {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                        } catch {
+                            launchAtLogin = !newValue
+                            let alert = NSAlert()
+                            alert.messageText = "Failed to \(newValue ? "enable" : "disable") launch at login"
+                            alert.informativeText = error.localizedDescription
+                            alert.alertStyle = .warning
+                            alert.runModal()
+                        }
+                    }
+            } else {
+                Text("Launch at login requires a bundled app (the .app must be in /Applications).")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
         }
         .onAppear {
-            if isBundled {
+            if Bundle.main.bundleIdentifier != nil {
                 launchAtLogin = (SMAppService.mainApp.status == .enabled)
+            }
+        }
+    }
+}
+
+private struct CategoryDisplay: View {
+    @EnvironmentObject var store: TimeZoneStore
+
+    var body: some View {
+        SettingsForm {
+            Toggle("Show date in the menu bar", isOn: $store.showDateInMenuBar)
+            Picker("Time format", selection: $store.use24Hour) {
+                Text("24-hour").tag(true)
+                Text("12-hour").tag(false)
+            }
+            .pickerStyle(.menu)
+        }
+    }
+}
+
+private struct CategoryTimeZones: View {
+    @EnvironmentObject var store: TimeZoneStore
+    @State private var addSelection = 0
+
+    var body: some View {
+        SettingsForm {
+            HStack {
+                Picker("Add a time zone", selection: $addSelection) {
+                    // Index tags keep Berlin & Frankfurt (same tz id, different
+                    // names) both selectable.
+                    ForEach(Array(SettingsView.commonZones.enumerated()), id: \.offset) { i, item in
+                        Text(item.region.isEmpty ? item.label : "\(item.label) · \(item.region)")
+                            .tag(i)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 220)
+
+                Button("Add") {
+                    guard addSelection < SettingsView.commonZones.count else { return }
+                    let item = SettingsView.commonZones[addSelection]
+                    // Dedupe by (id, label) — the same rule as the main panel,
+                    // so Berlin and Frankfurt can both exist.
+                    guard !store.zones.contains(where: { $0.id == item.id && $0.label == item.label }) else { return }
+                    store.zones.append(ZoneEntry(id: item.id,
+                                                 label: item.label,
+                                                 region: item.region,
+                                                 color: store.nextZoneColor()))
+                }
+                .disabled(addSelection >= SettingsView.commonZones.count
+                          || store.zones.contains {
+                              $0.id == SettingsView.commonZones[addSelection].id
+                                  && $0.label == SettingsView.commonZones[addSelection].label
+                          })
+            }
+
+            Divider()
+
+            ForEach(store.zones, id: \.uuid) { zone in
+                HStack {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(hex: zone.color))
+                        .frame(width: 4, height: 16)
+                    Text("\(zone.label) (\(zone.id))")
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                    Spacer()
+                    if zone.uuid == store.currentZoneUUID {
+                        Text("Current")
+                            .font(.system(size: 11))
+                            .foregroundColor(.blue)
+                    }
+                    Button("Remove") {
+                        store.zones.removeAll { $0.uuid == zone.uuid }
+                    }
+                    .disabled(zone.uuid == store.currentZoneUUID)
+                    .accessibilityLabel("Remove \(zone.label)")
+                }
+                .padding(.vertical, 2)
+            }
+
+            Button("Restore Defaults") {
+                store.zones = TimeZoneStore.defaultZones
+            }
+        }
+    }
+}
+
+private struct CategoryAppearance: View {
+    @EnvironmentObject var store: TimeZoneStore
+
+    var body: some View {
+        SettingsForm {
+            Picker("Theme", selection: $store.theme) {
+                ForEach(Theme.allCases) { theme in
+                    HStack(spacing: 10) {
+                        ThemeSwatch(theme: theme)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(theme.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                            Text(themeDescription(theme))
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if store.theme == theme {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .tag(theme)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+    }
+}
+
+private struct CategoryUpdate: View {
+    @StateObject private var updater = Updater()
+
+    var body: some View {
+        SettingsForm {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 13))
+                    .foregroundColor(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Software Update")
+                        .font(.system(size: 13, weight: .medium))
+                    Text(updateStatusText)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(updateButtonTitle) {
+                    switch updater.state {
+                    case .available(_, let release):
+                        Task { await updater.update(release: release) }
+                    default:
+                        Task { await updater.check() }
+                    }
+                }
+                .disabled(updater.isBusy)
+            }
+        }
+    }
+
+    private var updateStatusText: String {
+        switch updater.state {
+        case .idle: return "Check GitHub for a new version"
+        case .checking: return "Checking…"
+        case .available(let v, _): return "Version \(v) is available — click Update to install it in place"
+        case .downloading: return "Downloading and installing, the app will relaunch…"
+        case .upToDate: return "You are running the latest version"
+        case .error(let msg): return msg
+        }
+    }
+
+    private var updateButtonTitle: String { updater.state.buttonTitle }
+}
+
+private struct CategoryUninstall: View {
+    @State private var showUninstallConfirm = false
+    @State private var isUninstalling = false
+
+    var body: some View {
+        SettingsForm {
+            HStack(spacing: 10) {
+                Image(systemName: "trash")
+                    .font(.system(size: 13))
+                    .foregroundColor(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Uninstall TravelTime")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("Removes the app and all local data (requires authorization)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button("Uninstall…", role: .destructive) {
+                    showUninstallConfirm = true
+                }
+                .disabled(isUninstalling)
+            }
+            .confirmationDialog("Uninstall TravelTime?",
+                                isPresented: $showUninstallConfirm,
+                                titleVisibility: .visible) {
+                Button("Uninstall and Delete Data", role: .destructive) {
+                    uninstall()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The app will be deleted and quit immediately. If the icon lingers in Launchpad, run killall Dock in Terminal or log out and back in.")
             }
         }
     }
@@ -324,7 +390,7 @@ struct SettingsView: View {
         }
 
         // 9. Deregister the login item
-        if isBundled {
+        if Bundle.main.bundleIdentifier != nil {
             try? SMAppService.mainApp.unregister()
         }
 
@@ -348,27 +414,23 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Card container
+// MARK: - Reusable container
 
-struct SettingsCard<Content: View>: View {
-    var title: String? = nil
+/// One page of the settings (used inside the NavigationSplitView detail).
+/// Plain padded scroll card; the SwiftUI Form style was avoided because it
+/// changes visual density per-macOS-SDK and fights the rest of the app's
+/// styling on 14 / 26.
+struct SettingsForm<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let title {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                content
             }
-            content
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.primary.opacity(0.035))
-        )
     }
 }
 
