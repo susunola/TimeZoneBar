@@ -15,10 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - README rewritten: verified feature list, architecture overview, documented
-  privilege and update-verification model, and a **Known limitations** section.
+  privilege and update-verification model, release-cutting instructions, and a
+  **Known limitations** section.
 - Theme screenshots regenerated. All four are now captured from the same build
   and zone set, per-window so no desktop is visible, from a throwaway bundle ID
   so no personal preferences or avatar appear in the images.
+- CI passes `--disable-sandbox` (the workflow could not build without it),
+  caches `.build`, and now assembles and verifies an ad-hoc signed app bundle to
+  catch `Info.plist` and bundle-layout regressions.
 
 ### Fixed
 - `docs/screenshots/theme-minimal.png` was not the app at all — an unrelated
@@ -33,12 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the codebase relates to Spotlight.
 
 ### Known issues
-- In-app update cannot install published releases: assets are named
-  `TimeZoneBar.app.zip` and extract to `TimeZoneBar.app`, while `Updater.swift`
-  expects `TravelTime.app`.
+- In-app update cannot install releases up to and including v1.3.3: those assets
+  are named `TimeZoneBar.app.zip` and extract to `TimeZoneBar.app`, while
+  `Updater.swift` expects `TravelTime.app`. `./build.sh release` now emits a
+  correctly named archive, so the next published release resolves this.
 - The panel does not auto-size to the number of zones. `updatePanelHeight()`
   exists but is only reachable through store callbacks assigned after the store
-  has already initialised, so the window keeps its initial height.
+  has already initialised, so the window keeps its initial height — measured
+  identical at 3 and at 12 zones.
 
 ## [1.3.3] — 2026-08-17
 
