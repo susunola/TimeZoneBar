@@ -22,7 +22,7 @@ python3 make_icon.py Resources
 ./build.sh
 ```
 
-`build.sh` signs with a self-signed identity called `TimeZoneBar Developer` and
+`build.sh` signs with a self-signed identity called `TravelTime Developer` and
 installs to `/Applications`. Create that certificate in Keychain Access
 (*Certificate Assistant → Create a Certificate*, type: Code Signing), or change
 the identity in `build.sh` to `-` for ad-hoc signing.

@@ -100,7 +100,7 @@ Notes:
 - `--disable-sandbox` is required on recent macOS, where SwiftPM's own sandbox
   fails with `sandbox_apply: Operation not permitted` while compiling the
   manifest. `build.sh` already passes it.
-- `build.sh` signs with a self-signed identity named `TimeZoneBar Developer`
+- `build.sh` signs with a self-signed identity named `TravelTime Developer`
   and installs straight to `/Applications`. If you do not have that certificate
   in your keychain, either create one in Keychain Access (*Certificate
   Assistant → Create a Certificate*, type: Code Signing) or change the identity

@@ -7,7 +7,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "TravelTime",
-            path: "Sources/TimeZoneBar"
+            path: "Sources/TravelTime"
         ),
         .testTarget(
             name: "TravelTimeTests",

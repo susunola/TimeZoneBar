@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the TimeZoneBar app icon (AppIcon.icns) using only the standard library.
+"""Generate the TravelTime app icon (AppIcon.icns) using only the standard library.
 
 Design: blue rounded square with a white clock (dial, hour hand, minute hand, center dot).
 Rendering: SIZE=1024 with 2x2 supersampling for anti-aliasing.

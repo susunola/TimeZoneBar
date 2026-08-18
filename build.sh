@@ -45,8 +45,8 @@ if [ -d "Resources" ]; then
     done
 fi
 
-echo "==> 3/4 Code signing (self-signed certificate: 'TimeZoneBar Developer')"
-codesign --force --sign "TimeZoneBar Developer" --options runtime --identifier com.atom.tzbar "$APP"
+echo "==> 3/4 Code signing (self-signed certificate: 'TravelTime Developer')"
+codesign --force --sign "TravelTime Developer" --options runtime --identifier com.atom.tzbar "$APP"
 
 echo "==> 4/4 Verifying"
 plutil -lint "$APP/Contents/Info.plist"
