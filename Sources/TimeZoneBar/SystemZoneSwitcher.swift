@@ -83,7 +83,17 @@ enum PrivilegedRunner {
     }
 }
 
-enum SystemZoneSwitcher {
+/// Abstraction over the privileged timezone switch so TimeZoneStore can be
+/// unit-tested without triggering real admin prompts.
+protocol ZoneSwitching {
+    func switchTimeZone(to identifier: String) async throws
+}
+
+/// Real implementation: runs systemsetup through an osascript subprocess with
+/// administrator privileges (see PrivilegedRunner).
+struct SystemZoneSwitcher: ZoneSwitching {
+    static let shared = SystemZoneSwitcher()
+
     /// Switches the system time zone.
     ///
     /// The identifier is validated against the system's known IANA list before
@@ -91,7 +101,7 @@ enum SystemZoneSwitcher {
     /// command injection via untrusted input (e.g. a spoofed geo-location
     /// response). After validation the value can only contain letters, digits,
     /// `_`, `/` and `-`, which are inert inside the quoted AppleScript string.
-    static func switchTimeZone(to identifier: String) async throws {
+    func switchTimeZone(to identifier: String) async throws {
         guard TimeZone.knownTimeZoneIdentifiers.contains(identifier) else {
             throw ZoneSwitchError.adminRejected("Invalid time zone: \(identifier)")
         }

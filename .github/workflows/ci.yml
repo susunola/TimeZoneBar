@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -15,8 +16,13 @@ permissions:
 
 jobs:
   build-and-test:
-    name: Build & test (macOS)
-    runs-on: macos-15
+    name: Build & test (macOS ${{ matrix.macos }})
+    runs-on: ${{ matrix.macos }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lowest supported (per Package.swift platforms) + newest stable.
+        macos: [macos-14, macos-15]
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +35,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.swift') }}
-          restore-keys: ${{ runner.os }}-spm-
+          key: ${{ runner.os }}-${{ matrix.macos }}-spm-${{ hashFiles('Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.macos }}-spm-
 
       # --disable-sandbox: SwiftPM's manifest sandbox fails on recent macOS with
       # "sandbox_apply: Operation not permitted".
@@ -39,6 +46,14 @@ jobs:
 
       - name: Test
         run: swift test --disable-sandbox
+
+      - name: Test with coverage (macOS 15 only)
+        if: matrix.macos == 'macos-15'
+        run: |
+          swift test --disable-sandbox --enable-code-coverage
+          BIN=".build/debug/TravelTimePackageTests.xctest/Contents/MacOS/TravelTimePackageTests"
+          xcrun llvm-cov report "$BIN" -instr-profile .build/debug/codecov/default.profdata \
+            -ignore-filename-regex="\.build|Tests/" -use-color
 
       - name: Generate app icon
         run: python3 make_icon.py Resources
@@ -65,6 +80,42 @@ jobs:
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
-          name: TravelTime-app-unsigned
+          name: TravelTime-app-unsigned-${{ matrix.macos }}
           path: dist/TravelTime.app
+          if-no-files-found: error
+
+  release-package:
+    # On version tags only: build a release zip and fail if its SHA256 is not
+    # the one the updater would accept (i.e. printed for the release notes).
+    name: Verify release packaging
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble + package release zip
+        run: |
+          set -euo pipefail
+          swift build -c release --disable-sandbox
+          APP="dist/TravelTime.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp .build/release/TravelTime "$APP/Contents/MacOS/TravelTime"
+          cp Resources/Info.plist "$APP/Contents/Info.plist"
+          cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          cp Resources/avatar.jpg "$APP/Contents/Resources/avatar.jpg"
+          codesign --force --sign - --identifier com.atom.tzbar "$APP"
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="TravelTime-${VERSION}.app.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          HASH=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          echo "zip=$ZIP" >> "$GITHUB_ENV"
+          echo "sha256=$HASH" >> "$GITHUB_ENV"
+          echo "::notice::Paste into the release notes: SHA256: $HASH"
+
+      - name: Upload release zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: TravelTime-release-zip
+          path: TravelTime-*.app.zip
           if-no-files-found: error

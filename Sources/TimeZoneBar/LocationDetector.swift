@@ -86,13 +86,16 @@ enum LocationDetector {
         URL(string: "https://ipapi.co/json/")!
     ]
 
-    static func detect() async throws -> DetectedZone {
+    /// `session` is injectable so network behaviour (success, throttling,
+    /// malformed JSON, total failure) can be unit-tested with a URLProtocol
+    /// stub instead of hitting the real providers.
+    static func detect(session: URLSession = .shared) async throws -> DetectedZone {
         var lastError: Error?
         for url in endpoints {
             do {
                 var request = URLRequest(url: url)
                 request.timeoutInterval = 8
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await session.data(for: request)
 
                 // Check HTTP status
                 if let httpResponse = response as? HTTPURLResponse,

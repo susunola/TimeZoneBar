@@ -252,9 +252,7 @@ struct QuoteView: View {
     private var quote: String {
         // Rotate by the hour of the DISPLAYED zone, not the host system zone —
         // "morning" quotes should match what the panel is actually showing.
-        var cal = Calendar.current
-        cal.timeZone = TimeZone(identifier: store.currentZoneIdentifier) ?? .current
-        let hour = cal.component(.hour, from: store.now)
+        let hour = TimeZoneStore.hourOfDay(in: store.currentZoneIdentifier, at: store.now)
         return Self.quotes[hour % Self.quotes.count]
     }
 

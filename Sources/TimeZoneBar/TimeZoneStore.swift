@@ -144,6 +144,7 @@ final class TimeZoneStore: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private let switcher: any ZoneSwitching
     private static let zonesKey = "zones.v1"
     private static let currentZoneKey = "currentZone.v1"
     private static let currentZoneUUIDKey = "currentZoneUUID.v1"
@@ -204,8 +205,10 @@ final class TimeZoneStore: ObservableObject {
         Self.zonePalette[zones.count % Self.zonePalette.count]
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         switcher: any ZoneSwitching = SystemZoneSwitcher.shared) {
         self.defaults = defaults
+        self.switcher = switcher
         // Load custom avatar path if the user previously picked one
         avatarPath = Self.userAvatarURL()?.path
         avatarImage = Self.loadAvatarImage()
@@ -447,6 +450,14 @@ final class TimeZoneStore: ObservableObject {
         return tz.isDaylightSavingTime(for: now)
     }
 
+    /// Hour of the day (0-23) in the given zone at the given instant. Pure so
+    /// the quote-of-the-hour rotation can be unit-tested.
+    static func hourOfDay(in identifier: String, at date: Date) -> Int {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: identifier) ?? .current
+        return cal.component(.hour, from: date)
+    }
+
     static func offsetString(for identifier: String) -> String {
         guard let tz = TimeZone(identifier: identifier) else { return "" }
         let total = tz.secondsFromGMT()
@@ -499,7 +510,7 @@ final class TimeZoneStore: ObservableObject {
             do {
                 // PrivilegedRunner enforces its own 15 s timeout and kills the
                 // osascript child if the user ignores the authorization dialog.
-                try await SystemZoneSwitcher.switchTimeZone(to: id)
+                try await switcher.switchTimeZone(to: id)
                 currentZoneIdentifier = id
                 currentZoneUUID = uuid
                 defaults.set(id, forKey: Self.currentZoneKey)

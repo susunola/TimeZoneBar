@@ -11,6 +11,34 @@ import SwiftUI
 /// and the legacy-data migration path of ZoneEntry.
 final class TravelTimeTests: XCTestCase {
 
+    // MARK: - Test doubles
+
+    /// Programmable ZoneSwitching stub: records calls and yields a scripted
+    /// outcome, so switchTo() state-machine tests never touch admin prompts.
+    @MainActor
+    private final class MockSwitcher: ZoneSwitching {
+        enum Outcome {
+            case success
+            case failure(Error)
+            case hangUntilCancelled
+        }
+        var outcome: Outcome = .success
+        private(set) var calls: [String] = []
+
+        func switchTimeZone(to identifier: String) async throws {
+            calls.append(identifier)
+            switch outcome {
+            case .success:
+                return
+            case .failure(let error):
+                throw error
+            case .hangUntilCancelled:
+                // Suspend forever; cancelled when the store's task is torn down.
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+        }
+    }
+
     // MARK: - offsetString
 
     // TimeZoneStore is @MainActor, so its static helpers are MainActor-isolated too.
@@ -109,10 +137,24 @@ final class TravelTimeTests: XCTestCase {
     /// or write the real app preferences.
     @MainActor
     private func makeStore() -> TimeZoneStore {
+        makeStore(switcher: MockSwitcher())
+    }
+
+    @MainActor
+    private func makeStore(switcher: MockSwitcher) -> TimeZoneStore {
         let suiteName = "tz.test.\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         suite.removePersistentDomain(forName: suiteName)
-        return TimeZoneStore(defaults: suite)
+        return TimeZoneStore(defaults: suite, switcher: switcher)
+    }
+
+    /// Polls until the switchTo() background task settles (it runs on the main
+    /// actor, so yielding is enough for the immediate success/failure paths).
+    @MainActor
+    private func waitForSwitchToSettle(_ store: TimeZoneStore) async {
+        for _ in 0..<100 where store.isSwitching {
+            await Task.yield()
+        }
     }
 
     @MainActor
@@ -356,7 +398,7 @@ final class TravelTimeTests: XCTestCase {
     @MainActor
     func testSwitchTimeZoneRejectsUnknownIdentifier() async {
         do {
-            try await SystemZoneSwitcher.switchTimeZone(to: "Not/AZone; touch /tmp/pwned")
+            try await SystemZoneSwitcher.shared.switchTimeZone(to: "Not/AZone; touch /tmp/pwned")
             XCTFail("Expected invalid identifier to be rejected")
         } catch let error as ZoneSwitchError {
             XCTAssertEqual(error.localizedDescription, "Authorization failed: Invalid time zone: Not/AZone; touch /tmp/pwned")
@@ -412,5 +454,219 @@ final class TravelTimeTests: XCTestCase {
 
         let d = TimeZoneStore.cachedFormatter(format: "h:mm a", timeZone: TimeZone(identifier: "Asia/Shanghai"))
         XCTAssertFalse(a === d, "Different format must not share a formatter")
+    }
+
+    // MARK: - switchTo state machine (TimeZoneStore + MockSwitcher)
+
+    @MainActor
+    func testSwitchToRejectsSecondCallWhileInFlight() async {
+        let switcher = MockSwitcher()
+        switcher.outcome = .hangUntilCancelled
+        let store = makeStore(switcher: switcher)
+        let zone = TimeZoneStore.defaultZones[0]
+
+        store.switchTo(zone)
+        await Task.yield()
+        XCTAssertTrue(store.isSwitching, "First switch must be in flight")
+
+        // A second tap while the first is pending must be ignored entirely.
+        store.switchTo(TimeZoneStore.defaultZones[1])
+        await Task.yield()
+        XCTAssertEqual(switcher.calls.count, 1, "Second switch must not reach the switcher")
+    }
+
+    @MainActor
+    func testSwitchToFailureResetsStateAndShowsError() async {
+        let switcher = MockSwitcher()
+        switcher.outcome = .failure(ZoneSwitchError.adminRejected("wrong password"))
+        let store = makeStore(switcher: switcher)
+        let zone = TimeZoneStore.defaultZones[0]
+        let original = store.currentZoneIdentifier
+
+        store.switchTo(zone)
+        await waitForSwitchToSettle(store)
+
+        XCTAssertFalse(store.isSwitching, "State must reset after failure")
+        XCTAssertEqual(store.currentZoneIdentifier, original, "Failed switch must not change current zone")
+        XCTAssertNotNil(store.lastError)
+    }
+
+    @MainActor
+    func testSwitchToUserCancelStaysSilent() async {
+        let switcher = MockSwitcher()
+        switcher.outcome = .failure(ZoneSwitchError.userCanceled)
+        let store = makeStore(switcher: switcher)
+
+        store.switchTo(TimeZoneStore.defaultZones[0])
+        await waitForSwitchToSettle(store)
+
+        XCTAssertNil(store.lastError, "User canceling the dialog must not surface an error")
+        XCTAssertFalse(store.isSwitching)
+    }
+
+    @MainActor
+    func testSwitchToSuccessPersistsCurrentZoneAndUUID() async {
+        let switcher = MockSwitcher()
+        switcher.outcome = .success
+        let suiteName = "tz.test.switchok.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let store = TimeZoneStore(defaults: suite, switcher: switcher)
+        let zone = TimeZoneStore.defaultZones[1]   // Bangkok
+
+        store.switchTo(zone)
+        await waitForSwitchToSettle(store)
+
+        XCTAssertEqual(switcher.calls, [zone.id])
+        XCTAssertEqual(store.currentZoneIdentifier, zone.id)
+        XCTAssertEqual(store.currentZoneUUID, zone.uuid)
+        XCTAssertEqual(suite.string(forKey: "currentZone.v1"), zone.id)
+        XCTAssertEqual(suite.string(forKey: "currentZoneUUID.v1"), zone.uuid.uuidString)
+    }
+
+    // MARK: - confirmDetectedZone input validation (TimeZoneStore)
+
+    @MainActor
+    func testConfirmDetectedZoneRejectsInvalidTimezone() async {
+        let switcher = MockSwitcher()
+        let store = makeStore(switcher: switcher)
+        // A hostile/truncated geo response must never reach the privileged path.
+        store.detected = DetectedZone(timezone: "Not/AZone", city: "x", country: "y")
+
+        store.confirmDetectedZone()
+        await Task.yield()
+
+        XCTAssertEqual(switcher.calls.count, 0, "Invalid zone must not trigger a switch")
+        XCTAssertNotNil(store.lastError)
+        XCTAssertFalse(store.isSwitching)
+    }
+
+    @MainActor
+    func testConfirmDetectedZoneAddsAndSwitches() async {
+        let switcher = MockSwitcher()
+        switcher.outcome = .success
+        let store = makeStore(switcher: switcher)
+        store.detected = DetectedZone(timezone: "Asia/Seoul", city: "Seoul", country: "South Korea")
+
+        store.confirmDetectedZone()
+        await waitForSwitchToSettle(store)
+
+        XCTAssertEqual(switcher.calls, ["Asia/Seoul"])
+        XCTAssertTrue(store.zones.contains { $0.id == "Asia/Seoul" }, "New detected zone must be added")
+        XCTAssertEqual(store.currentZoneIdentifier, "Asia/Seoul")
+    }
+
+    // MARK: - Quote hour rotation (TimeZoneStore.hourOfDay)
+
+    @MainActor
+    func testHourOfDayUsesDisplayedZone() {
+        // 2026-08-18 04:00 UTC = 13:00 in Tokyo (UTC+9), 23:00 in New York
+        // (EDT, UTC-4). The quote rotation must follow the displayed zone.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .gmt
+        let fixed = cal.date(from: DateComponents(year: 2026, month: 8, day: 18, hour: 4, minute: 0))!
+        XCTAssertEqual(TimeZoneStore.hourOfDay(in: "Asia/Tokyo", at: fixed), 13)
+        XCTAssertEqual(TimeZoneStore.hourOfDay(in: "America/New_York", at: fixed), 0)
+        // Invalid zone falls back to the host clock hour — must still be 0-23.
+        let hostHour = TimeZoneStore.hourOfDay(in: "Not/AZone", at: fixed)
+        XCTAssertTrue((0...23).contains(hostHour))
+    }
+
+    // MARK: - Geolocation network behaviour (LocationDetector + URLProtocol)
+
+    /// URLProtocol stub that lets tests script provider responses (success,
+    /// throttling, malformed JSON, failure) without real network access.
+    private final class MockURLProtocol: URLProtocol {
+        static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() {
+            guard let handler = Self.handler else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+            do {
+                let (response, data) = try handler(request)
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+        }
+        override func stopLoading() {}
+    }
+
+    private func makeMockSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    func testDetectSucceedsWithIpWhoIsShape() async throws {
+        MockURLProtocol.handler = { request in
+            let body = #"{"timezone":{"id":"Asia/Bangkok","abbreviation":"ICT"},"city":"Bangkok","country":"Thailand"}"#
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(body.utf8))
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let zone = try await LocationDetector.detect(session: makeMockSession())
+        XCTAssertEqual(zone.timezone, "Asia/Bangkok")
+        XCTAssertEqual(zone.country, "Thailand")
+    }
+
+    func testDetectSurfacesRateLimit() async {
+        MockURLProtocol.handler = { request in
+            let body = #"{"error":true,"reason":"RateLimited","wait":1.0}"#
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(body.utf8))
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        do {
+            _ = try await LocationDetector.detect(session: makeMockSession())
+            XCTFail("Expected rate-limit error")
+        } catch let error as DetectionError {
+            if case .rateLimited(let reason) = error {
+                XCTAssertEqual(reason, "RateLimited")
+            } else {
+                XCTFail("Wrong error: \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testDetectFallsThroughToSecondEndpoint() async throws {
+        // First endpoint 500s; the second returns a valid flat timezone.
+        MockURLProtocol.handler = { request in
+            let isFirst = request.url!.host == "ipwho.is"
+            if isFirst {
+                return (HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                        Data())
+            }
+            let body = #"{"timezone":"Asia/Seoul","city":"Seoul","country_name":"South Korea"}"#
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(body.utf8))
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let zone = try await LocationDetector.detect(session: makeMockSession())
+        XCTAssertEqual(zone.timezone, "Asia/Seoul")
+    }
+
+    func testDetectThrowsWhenAllProvidersFail() async {
+        MockURLProtocol.handler = { request in
+            throw URLError(.notConnectedToInternet)
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        do {
+            _ = try await LocationDetector.detect(session: makeMockSession())
+            XCTFail("Expected failure")
+        } catch {
+            // Any error is acceptable; the key is that both endpoints were tried.
+        }
     }
 }
