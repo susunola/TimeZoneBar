@@ -25,9 +25,12 @@ enum DetectionError: LocalizedError {
 }
 
 enum LocationDetector {
-    /// ip-api.com is free and reliable in practice (http, ATS exception added); ipapi.co is the fallback
+    /// Both endpoints use HTTPS (the previous plain-HTTP ip-api.com call
+    /// required an ATS exception and let a same-network attacker spoof the
+    /// response — that response feeds a privileged timezone switch, so it is
+    /// a real injection surface). ip-api.com first, ipapi.co as fallback.
     static let endpoints: [URL] = [
-        URL(string: "http://ip-api.com/json/")!,
+        URL(string: "https://ip-api.com/json/")!,
         URL(string: "https://ipapi.co/json/")!
     ]
 

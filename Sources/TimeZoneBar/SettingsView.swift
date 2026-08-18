@@ -4,7 +4,7 @@ import ServiceManagement
 struct SettingsView: View {
     @EnvironmentObject var store: TimeZoneStore
     @StateObject private var updater = Updater()
-    @State private var addSelection = "Asia/Shanghai"
+    @State private var addSelection = 0
     @State private var launchAtLogin = false
 
     private var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
@@ -49,13 +49,8 @@ struct SettingsView: View {
         ("UTC", "Coordinated Universal Time", "")
     ]
 
-    /// Unique-by-id view of commonZones for the Settings picker (Berlin shown
-    /// once; Frankfurt still selectable from the main panel's add menu).
-    private var uniqueZoneOptions: [(id: String, label: String, region: String)] {
-        var seen = Set<String>()
-        return Self.commonZones.filter { seen.insert($0.id).inserted }
-    }
-
+    /// The Settings picker keeps every common zone (including Berlin AND
+    /// Frankfurt — same IANA id, different cities) selectable via index tags.
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -65,14 +60,6 @@ struct SettingsView: View {
 
                 // General
                 SettingsCard {
-                    if #available(macOS 26, *) {
-                        Label("macOS 26: if the icon is missing, enable TravelTime under System Settings › Menu Bar › Allow in the Menu Bar",
-                              systemImage: "info.circle")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .padding(.bottom, 8)
-                    }
-
                     if isBundled {
                         Toggle("Launch at login", isOn: $launchAtLogin)
                             .onChange(of: launchAtLogin) { _, newValue in
@@ -98,28 +85,35 @@ struct SettingsView: View {
                 SettingsCard(title: "Time Zones") {
                     HStack(spacing: 8) {
                         Picker("Add a time zone", selection: $addSelection) {
-                            // Deduplicate by tz id so Berlin & Frankfurt (same
-                            // Europe/Berlin id) don't produce duplicate tags.
-                            ForEach(uniqueZoneOptions, id: \.id) { item in
+                            // Index tags keep Berlin & Frankfurt (same tz id,
+                            // different names) both selectable.
+                            ForEach(Array(Self.commonZones.enumerated()), id: \.offset) { i, item in
                                 Text(item.region.isEmpty ? item.label : "\(item.label) · \(item.region)")
-                                    .tag(item.id)
+                                    .tag(i)
                             }
                         }
                         .labelsHidden()
+                        .frame(width: 220)
 
                         Button("Add") {
-                            guard !store.zones.contains(where: { $0.id == addSelection }) else { return }
-                            let item = Self.commonZones.first { $0.id == addSelection }
-                            store.zones.append(ZoneEntry(id: addSelection,
-                                                         label: item?.label ?? addSelection,
-                                                         region: item?.region ?? "",
+                            guard addSelection < Self.commonZones.count else { return }
+                            let item = Self.commonZones[addSelection]
+                            // Dedupe by (id, label) — the same rule as the main
+                            // panel, so Berlin and Frankfurt can both exist.
+                            guard !store.zones.contains(where: { $0.id == item.id && $0.label == item.label }) else { return }
+                            store.zones.append(ZoneEntry(id: item.id,
+                                                         label: item.label,
+                                                         region: item.region,
                                                          color: "#007AFF"))
-                            store.save()
                         }
-                        .disabled(store.zones.contains { $0.id == addSelection })
+                        .disabled(addSelection >= Self.commonZones.count
+                                  || store.zones.contains {
+                                      $0.id == Self.commonZones[addSelection].id
+                                          && $0.label == Self.commonZones[addSelection].label
+                                  })
                     }
 
-                    ForEach(Array(store.zones.enumerated()), id: \.offset) { _, zone in
+                    ForEach(store.zones, id: \.uuid) { zone in
                         HStack {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(Color(hex: zone.color))
@@ -128,23 +122,22 @@ struct SettingsView: View {
                                 .font(.system(size: 13))
                                 .lineLimit(1)
                             Spacer()
-                            if zone.id == store.currentZoneIdentifier {
+                            if zone.uuid == store.currentZoneUUID {
                                 Text("Current")
                                     .font(.system(size: 11))
                                     .foregroundColor(.blue)
                             }
                             Button("Remove") {
-                                store.zones.removeAll { $0.id == zone.id }
-                                store.save()
+                                store.zones.removeAll { $0.uuid == zone.uuid }
                             }
-                            .disabled(zone.id == store.currentZoneIdentifier)
+                            .disabled(zone.uuid == store.currentZoneUUID)
+                            .accessibilityLabel("Remove \(zone.label)")
                         }
                         .padding(.vertical, 2)
                     }
 
                     Button("Restore Defaults") {
                         store.zones = TimeZoneStore.defaultZones
-                        store.save()
                     }
                     .padding(.top, 4)
                 }

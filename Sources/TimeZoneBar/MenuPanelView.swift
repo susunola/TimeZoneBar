@@ -130,6 +130,9 @@ struct MenuPanelView: View {
         .background(palette.window)
         .onAppear {
             store.refreshAutoTimezoneFlag()
+            // Errors from a previous interaction shouldn't linger on the next
+            // panel open.
+            store.lastError = nil
         }
     }
 }
@@ -140,8 +143,13 @@ struct HeaderView: View {
     @EnvironmentObject var store: TimeZoneStore
     let palette: ThemePalette
 
+    /// The highlighted zone: prefer the uuid-tracked current row, fall back to
+    /// a lookup by IANA id (covers the case where the current row was deleted
+    /// and the pointer was sanitized to nil).
     private var current: ZoneEntry? {
-        store.zones.first { $0.id == store.currentZoneIdentifier }
+        if let u = store.currentZoneUUID,
+           let z = store.zones.first(where: { $0.uuid == u }) { return z }
+        return store.zones.first { $0.id == store.currentZoneIdentifier }
     }
 
     private var accent: Color { palette.accent }
@@ -286,11 +294,10 @@ struct ZoneListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: palette.useCards ? 10 : 2) {
-                // Use index as ForEach id because store.zones can contain
-                // entries with duplicate tz ids (e.g. Berlin + Frankfurt
-                // both Europe/Berlin). Identifiable's id would collide and
-                // SwiftUI would drop one row silently.
-                ForEach(Array(store.zones.enumerated()), id: \.offset) { _, zone in
+                // Keyed by the entry's unique uuid, so Berlin + Frankfurt
+                // (same IANA id) render as two distinct stable rows and hover
+                // state never migrates to a neighbour after a middle delete.
+                ForEach(store.zones, id: \.uuid) { zone in
                     ZoneRowView(palette: palette, zone: zone)
                 }
                 AddZoneRow(palette: palette)
@@ -344,7 +351,7 @@ struct ZoneRowView: View {
     let palette: ThemePalette
     let zone: ZoneEntry
 
-    private var isCurrent: Bool { zone.id == store.currentZoneIdentifier }
+    private var isCurrent: Bool { zone.uuid == store.currentZoneUUID }
     private var dayDiff: Int { store.dayDifference(for: zone) }
     private var offset: String { TimeZoneStore.offsetString(for: zone.id) }
 
@@ -386,9 +393,12 @@ struct ZoneRowView: View {
                     .frame(width: 22, height: 22)
             }
             .menuStyle(.borderlessButton)
+            .accessibilityLabel("Replace \(zone.label)")
 
             Button {
-                store.zones.removeAll { $0.id == zone.id }
+                // Delete by unique uuid — deleting Frankfurt must not take
+                // Berlin (same IANA id) with it.
+                store.zones.removeAll { $0.uuid == zone.uuid }
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 13))
@@ -396,18 +406,24 @@ struct ZoneRowView: View {
             }
             .buttonStyle(.plain)
             .disabled(isCurrent)
+            .accessibilityLabel("Remove \(zone.label)")
         }
         .frame(width: 46)
         .opacity(hovered ? 1 : 0)
     }
 
     private func replace(with item: (id: String, label: String, region: String)) {
-        guard let idx = store.zones.firstIndex(where: { $0.id == zone.id }) else { return }
-        let wasCurrent = zone.id == store.currentZoneIdentifier
-        store.zones[idx] = ZoneEntry(id: item.id, label: item.label, region: item.region, color: zone.color)
-        // If we just replaced the row that is the app's current zone, keep the
-        // current-zone pointer in sync so the header doesn't show "Current".
+        guard let idx = store.zones.firstIndex(where: { $0.uuid == zone.uuid }) else { return }
+        let wasCurrent = zone.uuid == store.currentZoneUUID
+        // Keep the same uuid across the replacement so SwiftUI ForEach identity,
+        // hover state and the current-zone pointer all stay valid.
+        store.zones[idx] = ZoneEntry(id: item.id,
+                                     label: item.label,
+                                     region: item.region,
+                                     color: zone.color,
+                                     uuid: zone.uuid)
         if wasCurrent {
+            store.currentZoneUUID = store.zones[idx].uuid
             store.setCurrentZone(item.id)
         }
     }

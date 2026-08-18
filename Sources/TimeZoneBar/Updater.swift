@@ -65,7 +65,12 @@ final class Updater: ObservableObject {
             // #3: Check HTTP status code
             if let httpResponse = response as? HTTPURLResponse,
                httpResponse.statusCode != 200 {
-                state = .error("GitHub API error: HTTP \(httpResponse.statusCode)")
+                if httpResponse.statusCode == 403 {
+                    // Unauthenticated GitHub API is rate-limited to 60 req/h.
+                    state = .error("GitHub API rate limit reached — try again in about an hour")
+                } else {
+                    state = .error("GitHub API error: HTTP \(httpResponse.statusCode)")
+                }
                 return
             }
             
@@ -160,16 +165,22 @@ final class Updater: ObservableObject {
         }
     }
 
-    /// Parse version string to comparable array of integers
-    /// Handles: "v1.2.3", "1.2.3", "1.2", etc.
-    private func parseVersion(_ versionString: String) -> [Int] {
+    /// Parse version string to comparable array of integers.
+    /// Handles "v1.2.3", "1.2.3", "1.2". Only the leading digits of the first
+    /// three dot-separated segments are kept, so prerelease suffixes like
+    /// "2.0.0-beta.1" never inflate the version (internal for tests).
+    func parseVersion(_ versionString: String) -> [Int] {
         let cleaned = versionString.replacingOccurrences(of: "v", with: "").trimmingCharacters(in: .whitespaces)
         return cleaned.split(separator: ".")
-            .compactMap { Int($0) }
+            .prefix(3)
+            .compactMap { segment -> Int? in
+                let digits = segment.prefix(while: { $0.isNumber })
+                return digits.isEmpty ? nil : Int(digits)
+            }
     }
-    
-    /// Compare two version arrays: returns true if v1 > v2
-    private func isVersionGreater(_ v1: [Int], than v2: [Int]) -> Bool {
+
+    /// Compare two version arrays: returns true if v1 > v2 (internal for tests)
+    func isVersionGreater(_ v1: [Int], than v2: [Int]) -> Bool {
         let maxLength = max(v1.count, v2.count)
         for i in 0..<maxLength {
             let num1 = i < v1.count ? v1[i] : 0
@@ -180,7 +191,7 @@ final class Updater: ObservableObject {
         return false
     }
 
-    private func sha256FromBody(_ body: String?) -> String? {
+    func sha256FromBody(_ body: String?) -> String? {
         guard let body else { return nil }
         // Support multiple formats: "SHA256: abc123", "sha256: abc123", "SHA256 abc123", "Checksum: abc123"
         let patterns = ["SHA256:", "sha256:", "SHA 256:", "Checksum:"]

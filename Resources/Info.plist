@@ -8,6 +8,8 @@
 	<string>TravelTime</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<!-- Keep com.atom.tzbar. Changing it would orphan every UserDefaults key
+	     (zones, theme, current zone, avatar) and reset the app to defaults. -->
 	<key>CFBundleIdentifier</key>
 	<string>com.atom.tzbar</string>
 	<key>CFBundleName</key>
@@ -22,19 +24,6 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<false/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>ip-api.com</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
-		</dict>
-	</dict>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

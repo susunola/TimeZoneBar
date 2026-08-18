@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "TravelTime",
             path: "Sources/TimeZoneBar"
+        ),
+        .testTarget(
+            name: "TravelTimeTests",
+            dependencies: ["TravelTime"],
+            path: "Tests/TravelTimeTests"
         )
     ]
 )

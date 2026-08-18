@@ -1,11 +1,42 @@
 import SwiftUI
 import Combine
 
-struct ZoneEntry: Identifiable, Codable, Hashable {
-    var id: String      // IANA identifier, e.g. Asia/Shanghai
+/// One row in the zone list.
+///
+/// - `id`   is the IANA identifier (e.g. `Europe/Berlin`) and is **NOT unique** —
+///          Berlin and Frankfurt legitimately share `Europe/Berlin`.
+/// - `uuid` is a unique identity used by SwiftUI `ForEach` and for
+///          delete/replace targeting, so duplicate IANA ids never collide.
+struct ZoneEntry: Codable, Hashable {
+    var id: String      // IANA identifier (NOT unique!)
+    var uuid: UUID      // unique identity for UI (ForEach id, delete/replace)
     var label: String   // Display name, e.g. Beijing
     var region: String  // Country or region, e.g. China
     var color: String   // Hex accent color
+
+    init(id: String, label: String, region: String, color: String, uuid: UUID = UUID()) {
+        self.id = id
+        self.uuid = uuid
+        self.label = label
+        self.region = region
+        self.color = color
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, uuid, label, region, color
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        // Older persisted payloads predate the uuid field — mint one on decode.
+        // It gets persisted on the next save, so each entry only ever needs a
+        // synthetic uuid once.
+        uuid = (try? c.decode(UUID.self, forKey: .uuid)) ?? UUID()
+        label = try c.decode(String.self, forKey: .label)
+        region = try c.decode(String.self, forKey: .region)
+        color = try c.decode(String.self, forKey: .color)
+    }
 }
 
 struct DetectedZone: Equatable {
@@ -32,18 +63,33 @@ enum Theme: String, CaseIterable, Identifiable {
         case .editorial: return "Editorial"
         }
     }
+
+    /// Row height in points — single source of truth for both the palette and
+    /// the auto-resizing window (AppDelegate.updatePanelHeight).
+    var rowHeight: CGFloat {
+        switch self {
+        case .minimal: return 52
+        case .glass: return 82
+        case .midnight: return 52
+        case .editorial: return 66
+        }
+    }
 }
 
 @MainActor
 final class TimeZoneStore: ObservableObject {
     @Published var zones: [ZoneEntry] {
         didSet {
+            sanitizeCurrentZone()
             save()              // persist changes (add/remove/replace)
             onZonesChanged()    // notify AppDelegate to resize the window
         }
     }
     @Published var now = Date()
     @Published var currentZoneIdentifier: String
+    /// Which row is highlighted as "current". Tracked by uuid so that two rows
+    /// sharing an IANA id (Berlin + Frankfurt) never both highlight.
+    @Published var currentZoneUUID: UUID?
     @Published var autoTimezoneEnabled = false
     @Published var isSwitching = false
     @Published var lastError: String?
@@ -58,7 +104,10 @@ final class TimeZoneStore: ObservableObject {
         didSet { defaults.set(use24Hour, forKey: Self.use24HourKey) }
     }
     @Published var theme: Theme {
-        didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) }
+        didSet {
+            defaults.set(theme.rawValue, forKey: Self.themeKey)
+            onThemeChanged()    // window height depends on the theme's row height
+        }
     }
 
     /// Injected by AppDelegate: opens the settings window
@@ -79,12 +128,18 @@ final class TimeZoneStore: ObservableObject {
     /// window can auto-resize to fit the new number of rows.
     var onZonesChanged: () -> Void = {}
 
-    /// Window control callbacks — injected by AppDelegate. Used by the
-    /// custom-drawn title bar (traffic lights) in MenuPanelView, since the
-    /// borderless NSPanel has no system window chrome.
-    var closeWindow: () -> Void = {}
-    var minimizeWindow: () -> Void = {}
-    var zoomWindow: () -> Void = {}
+    /// Injected by AppDelegate: called when the theme changes so the window can
+    /// recompute its height (row height differs per theme).
+    var onThemeChanged: () -> Void = {}
+
+    /// Whether the main panel is currently on screen. Gates the 30 s
+    /// auto-timezone poll so a background app does not fork a process
+    /// every half minute while unused.
+    private var isPanelVisible = false
+
+    func setPanelVisible(_ visible: Bool) {
+        isPanelVisible = visible
+    }
 
     private let defaults = UserDefaults.standard
     private static let zonesKey = "zones.v1"
@@ -147,9 +202,27 @@ final class TimeZoneStore: ObservableObject {
         showDateInMenuBar = defaults.object(forKey: Self.showDateKey) as? Bool ?? false
         use24Hour = defaults.object(forKey: Self.use24HourKey) as? Bool ?? true
         theme = Theme(rawValue: defaults.string(forKey: Self.themeKey) ?? "") ?? .minimal
-        // autoTimezoneEnabled keeps its default false; refreshed asynchronously below (#7)
+        // Highlight the row matching the persisted current zone. Placed after
+        // every stored property is initialized (reading self properties is only
+        // allowed once all of them are), and written as a plain loop so no
+        // closure captures self during init.
+        var matchedUUID: UUID?
+        for z in zones where z.id == currentZoneIdentifier {
+            matchedUUID = z.uuid
+            break
+        }
+        currentZoneUUID = matchedUUID
+        // autoTimezoneEnabled keeps its default false; refreshed asynchronously below
         refreshAutoTimezoneFlag()
         startAutoTimezoneMonitoring()
+    }
+
+    /// Drops the current-row pointer when its row was deleted / replaced by
+    /// Restore Defaults. The header falls back to a lookup by IANA id.
+    private func sanitizeCurrentZone() {
+        if let u = currentZoneUUID, !zones.contains(where: { $0.uuid == u }) {
+            currentZoneUUID = nil
+        }
     }
 
     // MARK: - Auto timezone monitoring
@@ -170,8 +243,9 @@ final class TimeZoneStore: ObservableObject {
 
     /// Keeps the warning banner in sync with System Settings:
     /// 1. refreshes when the system time zone changes, and
-    /// 2. polls the flag every 30 s so toggling "Set time zone automatically"
-    ///    in System Settings hides the banner on its own.
+    /// 2. polls the flag every 30 s while the panel is visible, so toggling
+    ///    "Set time zone automatically" in System Settings hides the banner
+    ///    on its own.
     private func startAutoTimezoneMonitoring() {
         NotificationCenter.default.addObserver(
             self,
@@ -182,7 +256,8 @@ final class TimeZoneStore: ObservableObject {
         autoTimezoneMonitor = Timer.publish(every: 30, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                self?.refreshAutoTimezoneFlag()
+                guard let self, self.isPanelVisible else { return }
+                self.refreshAutoTimezoneFlag()
             }
     }
 
@@ -218,47 +293,66 @@ final class TimeZoneStore: ObservableObject {
     /// Whether it is daytime there (calculated from sun position)
     func isDaytime(in identifier: String) -> Bool {
         guard let tz = TimeZone(identifier: identifier) else { return true }
-        
+
         // Get approximate latitude/longitude for the time zone
-        // This is a simplified mapping for common time zones
         let coordinates = Self.approximateCoordinates(for: identifier)
-        
+
         // Calculate sun position
-        let isDay = Self.isSunUp(latitude: coordinates.lat, longitude: coordinates.lon, date: now, timeZone: tz)
-        
-        return isDay
+        return Self.isSunUp(latitude: coordinates.lat, longitude: coordinates.lon, date: now, timeZone: tz)
     }
-    
-    /// Approximate coordinates for common time zones
+
+    /// Approximate coordinates for the common zones. Covers every entry in
+    /// SettingsView.commonZones so the day/night badge is right for any zone
+    /// the user can add.
+    private static let zoneCoordinates: [String: (lat: Double, lon: Double)] = [
+        "Asia/Shanghai": (31.2, 121.5),
+        "Asia/Bangkok": (13.8, 100.5),
+        "Asia/Jakarta": (-6.2, 106.8),
+        "Asia/Hong_Kong": (22.3, 114.2),
+        "Asia/Taipei": (25.0, 121.5),
+        "Asia/Tokyo": (35.7, 139.7),
+        "Asia/Seoul": (37.6, 127.0),
+        "Asia/Singapore": (1.35, 103.8),
+        "Asia/Dubai": (25.2, 55.3),
+        "Asia/Kolkata": (22.6, 88.4),
+        "Australia/Sydney": (-33.9, 151.2),
+        "Pacific/Auckland": (-36.8, 174.8),
+        "Europe/London": (51.5, -0.1),
+        "Europe/Paris": (48.9, 2.35),
+        "Europe/Berlin": (52.5, 13.4),
+        "Europe/Madrid": (40.4, -3.7),
+        "Europe/Rome": (41.9, 12.5),
+        "Europe/Amsterdam": (52.4, 4.9),
+        "America/New_York": (40.7, -74.0),
+        "America/Los_Angeles": (34.05, -118.24),
+        "America/Chicago": (41.9, -87.6),
+        "America/Sao_Paulo": (-23.55, -46.63),
+        "UTC": (0, 0)
+    ]
+
     private static func approximateCoordinates(for identifier: String) -> (lat: Double, lon: Double) {
-        switch identifier {
-        case "Asia/Shanghai": return (31.2, 121.5)      // Shanghai
-        case "Asia/Bangkok": return (13.8, 100.5)        // Bangkok
-        case "Asia/Jakarta": return (-6.2, 106.8)        // Jakarta
-        case "Europe/London": return (51.5, -0.1)        // London
-        case "America/New_York": return (40.7, -74.0)    // New York
-        case "Asia/Tokyo": return (35.7, 139.7)          // Tokyo
-        default:
-            // Extract approximate longitude from time zone offset
-            let offset = TimeZone(identifier: identifier)?.secondsFromGMT() ?? 0
-            let lon = Double(offset) / 3600.0 * 15.0
-            return (0.0, lon)  // Default to equator
-        }
+        if let c = zoneCoordinates[identifier] { return c }
+        // Fallback for exotic zones: derive longitude from the UTC offset,
+        // keep latitude at the equator. Only affects the day/night badge.
+        let offset = TimeZone(identifier: identifier)?.secondsFromGMT() ?? 0
+        var lon = Double(offset) / 3600.0 * 15.0
+        lon = max(-180, min(180, lon))
+        return (0.0, lon)
     }
-    
+
     /// Calculate if sun is up at the given location and time
     /// Uses a simplified solar position algorithm
     private static func isSunUp(latitude: Double, longitude: Double, date: Date, timeZone: TimeZone) -> Bool {
         // Convert to UTC
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(abbreviation: "UTC")!
-        
+
         let year = cal.component(.year, from: date)
         let month = cal.component(.month, from: date)
         let day = cal.component(.day, from: date)
         let hour = cal.component(.hour, from: date)
         let minute = cal.component(.minute, from: date)
-        
+
         // Calculate day of year
         var dayOfYear = 0
         let daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -269,24 +363,24 @@ final class TimeZoneStore: ObservableObject {
         if month > 2 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
             dayOfYear += 1
         }
-        
+
         // Solar declination (simplified)
         let declination = -23.44 * cos((2.0 * .pi / 365.0) * Double(dayOfYear + 10))
-        
+
         // Hour angle
         let fractionalHour = Double(hour) + Double(minute) / 60.0
         let utcHour = fractionalHour - Double(timeZone.secondsFromGMT()) / 3600.0
         let solarTime = utcHour + longitude / 15.0
         let hourAngle = (solarTime - 12.0) * 15.0
-        
+
         // Solar elevation
         let latRad = latitude * .pi / 180.0
         let decRad = declination * .pi / 180.0
         let haRad = hourAngle * .pi / 180.0
-        
+
         let sinElevation = sin(latRad) * sin(decRad) + cos(latRad) * cos(decRad) * cos(haRad)
         let elevation = asin(sinElevation) * 180.0 / .pi
-        
+
         // Sun is up if elevation > -0.83 degrees (accounting for atmospheric refraction)
         return elevation > -0.83
     }
@@ -322,26 +416,26 @@ final class TimeZoneStore: ObservableObject {
 
     // MARK: - Actions
 
+    /// Switches the SYSTEM time zone (admin prompt) and marks the row as current.
     func switchTo(_ zone: ZoneEntry) {
         guard !isSwitching else { return }
+        // Validate before anything touches the privileged path — a bad IANA id
+        // must never reach the shell.
+        guard TimeZone(identifier: zone.id) != nil else {
+            lastError = "Invalid time zone: \(zone.id)"
+            return
+        }
         isSwitching = true
         lastError = nil
         let id = zone.id
+        let uuid = zone.uuid
         Task {
             do {
-                // Timeout: 15 seconds max (waiting for admin authorization)
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        try await SystemZoneSwitcher.switchTimeZone(to: id)
-                    }
-                    group.addTask {
-                        try await Task.sleep(nanoseconds: 15_000_000_000)
-                        throw ZoneSwitchError.adminRejected("Timed out waiting for authorization")
-                    }
-                    defer { group.cancelAll() }
-                    try await group.next()!
-                }
+                // PrivilegedRunner enforces its own 15 s timeout and kills the
+                // osascript child if the user ignores the authorization dialog.
+                try await SystemZoneSwitcher.switchTimeZone(to: id)
                 currentZoneIdentifier = id
+                currentZoneUUID = uuid
                 defaults.set(id, forKey: Self.currentZoneKey)
                 let flag = await Self.readAutoTimezoneFlagAsync()
                 autoTimezoneEnabled = flag
@@ -385,6 +479,12 @@ final class TimeZoneStore: ObservableObject {
 
     func confirmDetectedZone() {
         guard let d = detected else { return }
+        // A geo response is untrusted input that flows into a privileged
+        // timezone switch — validate it before it can reach that path.
+        guard TimeZone(identifier: d.timezone) != nil else {
+            lastError = "Detected time zone is not valid: \(d.timezone)"
+            return
+        }
         if let entry = zones.first(where: { $0.id == d.timezone }) {
             switchTo(entry)
         } else {
@@ -392,8 +492,7 @@ final class TimeZoneStore: ObservableObject {
                                   label: d.city.isEmpty ? d.timezone : d.city,
                                   region: d.country,
                                   color: "#007AFF")
-            zones.append(entry)
-            save()
+            zones.append(entry)     // didSet persists
             switchTo(entry)
         }
     }
@@ -407,47 +506,46 @@ final class TimeZoneStore: ObservableObject {
         }
     }
 
-    /// Persists a current-zone change without running the privileged switcher
-    /// (used when the current row is replaced in-place).
+    /// Persists a current-zone change without running the privileged switcher.
+    /// Used when the current row is replaced in-place — the header follows the
+    /// new city, but the OS time zone itself only changes when the user clicks
+    /// a row (that path is admin-gated).
     func setCurrentZone(_ id: String) {
         currentZoneIdentifier = id
         defaults.set(id, forKey: Self.currentZoneKey)
     }
 
-    /// #7: Reads the "Set time zone automatically" flag from /Library/Preferences/com.apple.timezone.auto (async version)
+    /// Reads the "Set time zone automatically" flag.
+    ///
+    /// macOS 26 no longer keeps `/Library/Preferences/com.apple.timezone.auto`
+    /// on disk; `defaults read` would return a stale value cached by cfprefsd
+    /// (we observed "Active = 1" long after the user turned the switch off).
+    /// So we trust the disk file only and **fail closed** (assume OFF) when it
+    /// is absent. On macOS 14/15 the file exists and the real value is read.
     private static func readAutoTimezoneFlagAsync() async -> Bool {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .background).async {
+                let path = "/Library/Preferences/com.apple.timezone.auto"
+                guard FileManager.default.fileExists(atPath: path) else {
+                    continuation.resume(returning: false)
+                    return
+                }
                 let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-                p.arguments = ["read", "/Library/Preferences/com.apple.timezone.auto"]
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/plutil")
+                p.arguments = ["-extract", "Active", "raw", "-o", "-", path]
                 let pipe = Pipe()
                 p.standardOutput = pipe
                 p.standardError = Pipe()
-                do { try p.run() } catch { 
+                do { try p.run() } catch {
                     continuation.resume(returning: false)
-                    return 
+                    return
                 }
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 p.waitUntilExit()
-                let out = String(data: data, encoding: .utf8) ?? ""
-                continuation.resume(returning: out.contains("Active = 1"))
+                let out = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                continuation.resume(returning: out == "1" || out.lowercased() == "true")
             }
         }
-    }
-
-    /// Synchronous version kept for backward compatibility (used after switchTo)
-    private static func readAutoTimezoneFlag() -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        p.arguments = ["read", "/Library/Preferences/com.apple.timezone.auto"]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = Pipe()
-        do { try p.run() } catch { return false }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        let out = String(data: data, encoding: .utf8) ?? ""
-        return out.contains("Active = 1")
     }
 }

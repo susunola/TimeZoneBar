@@ -41,19 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.onZonesChanged = { [weak self] in
             self?.updatePanelHeight()
         }
+        store.onThemeChanged = { [weak self] in
+            self?.updatePanelHeight()
+        }
         store.chooseAvatar = { [weak self] in
             self?.chooseAvatarFile()
-        }
-        store.closeWindow = { [weak self] in
-            self?.panel.orderOut(nil)
-        }
-        store.minimizeWindow = { [weak self] in
-            self?.panel.miniaturize(nil)
-        }
-        store.zoomWindow = { [weak self] in
-            // Green traffic light: toggle zoom (maximize / restore). For a
-            // borderless panel, performZoom() is the closest system match.
-self?.panel.performZoom(nil)
         }
         setupStatusItem()
         setupPanel()
@@ -66,12 +58,25 @@ self?.panel.performZoom(nil)
             name: NSWorkspace.didWakeNotification,
             object: nil
         )
+        // When the user closes the window with the red traffic light, the
+        // panel-visibility flag (which gates the auto-timezone poll) follows.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.store.setPanelVisible(false)
+            }
+        }
     }
 
     /// Grows / shrinks the window so it exactly fits the number of zone rows.
     private func updatePanelHeight() {
-        let rowHeights: [Theme: CGFloat] = [.minimal: 52, .glass: 82, .midnight: 52, .editorial: 66]
-        let rowH = rowHeights[store.theme] ?? 60
+        // setupPanel may not have run yet (e.g. a zones change during init),
+        // so guard the implicit-unwrapped window.
+        guard let panel = self.panel else { return }
+        let rowH = store.theme.rowHeight
         // header (~180-240) + list top/bottom padding (~20) + footer (~150)
         let fixedChrome: CGFloat = store.theme == .editorial ? 400 : 360
         let wanted = fixedChrome + CGFloat(store.zones.count) * rowH + 24
@@ -148,6 +153,7 @@ self?.panel.performZoom(nil)
     private func togglePanel() {
         if panel.isVisible {
             panel.orderOut(nil)
+            store.setPanelVisible(false)
         } else {
             showPanel()
         }
@@ -157,6 +163,7 @@ self?.panel.performZoom(nil)
         panel.center()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        store.setPanelVisible(true)
     }
 
     private func startTimer() {
@@ -166,7 +173,12 @@ self?.panel.performZoom(nil)
                 // Timer.publish(..., on: .main) guarantees main-thread delivery
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.store.now = Date()
+                    // The UI only displays down to the minute (HH:mm), so only
+                    // publish when the minute actually changes. This collapses
+                    // 60 redraws per minute into 1.
+                    let now = Date()
+                    guard !Calendar.current.isDate(now, equalTo: self.store.now, toGranularity: .minute) else { return }
+                    self.store.now = now
                     self.statusItem?.button?.title = " " + self.store.menuBarText
                 }
             }
