@@ -148,16 +148,21 @@ struct SettingsView: View {
                 SettingsCard(title: "Display") {
                     Toggle("Show date in the menu bar", isOn: $store.showDateInMenuBar)
 
-                    HStack {
+                    HStack(spacing: 10) {
                         Text("Time format")
                             .font(.system(size: 13))
-                        Spacer()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            // Push the segmented control to its natural width even
+                            // at narrow window sizes; otherwise Spacer squeezes the
+                            // label into "Time for-mat".
+                            .layoutPriority(1)
                         Picker("Time format", selection: $store.use24Hour) {
                             Text("24-hour").tag(true)
                             Text("12-hour").tag(false)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 180)
+                        .fixedSize()
                     }
                 }
 

@@ -31,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.onThemeChanged = { [weak self] in
             self?.updatePanelHeight()
         }
+        store.onMenuBarConfigChanged = { [weak self] in
+            // The status-item title is rebuilt from menuBarText; refresh it
+            // immediately on toggle instead of waiting for the next minute tick.
+            self?.statusItem?.button?.title = " " + (self?.store.menuBarText ?? "")
+        }
         store.chooseAvatar = { [weak self] in
             self?.chooseAvatarFile()
         }

@@ -99,10 +99,14 @@ final class TimeZoneStore: ObservableObject {
 
     // Persisted display preferences
     @Published var showDateInMenuBar: Bool {
-        didSet { defaults.set(showDateInMenuBar, forKey: Self.showDateKey) }
+        didSet { defaults.set(showDateInMenuBar, forKey: Self.showDateKey)
+            onMenuBarConfigChanged()
+        }
     }
     @Published var use24Hour: Bool {
-        didSet { defaults.set(use24Hour, forKey: Self.use24HourKey) }
+        didSet { defaults.set(use24Hour, forKey: Self.use24HourKey)
+            onMenuBarConfigChanged()
+        }
     }
     @Published var theme: Theme {
         didSet {
@@ -133,6 +137,11 @@ final class TimeZoneStore: ObservableObject {
     /// Injected by AppDelegate: called when the theme changes so the window can
     /// recompute its height (row height differs per theme).
     var onThemeChanged: () -> Void = {}
+
+    /// Injected by AppDelegate: called whenever the menu bar title inputs
+    /// (show-date toggle, 12/24-hour format) change, so the status item
+    /// refreshes immediately instead of waiting for the next minute tick.
+    var onMenuBarConfigChanged: () -> Void = {}
 
     /// Whether the main panel is currently on screen. Gates the 30 s
     /// auto-timezone poll so a background app does not fork a process
