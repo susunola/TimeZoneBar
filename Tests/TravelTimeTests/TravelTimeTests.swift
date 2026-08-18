@@ -340,5 +340,77 @@ final class TravelTimeTests: XCTestCase {
         let bad = rgba(Color(hex: "notacolor"))
         XCTAssertEqual(bad.r, 0.5, accuracy: 0.01)
         XCTAssertEqual(bad.g, 0.5, accuracy: 0.01)
+
+        // 3-digit shorthand expands to the same color as the 6-digit form.
+        let short6 = rgba(Color(hex: "#00ff00"))
+        XCTAssertEqual(short6.g, short.g, accuracy: 0.001)
+        XCTAssertEqual(short6.r, short.r, accuracy: 0.001)
+    }
+
+    // MARK: - Timezone switch input validation (SystemZoneSwitcher)
+
+    /// Regression for the injection surface: an id outside the system's known
+    /// IANA list must be rejected BEFORE anything touches the privileged shell.
+    /// (The valid-id path would prompt for admin rights, so only the negative
+    /// path is unit-tested here.)
+    @MainActor
+    func testSwitchTimeZoneRejectsUnknownIdentifier() async {
+        do {
+            try await SystemZoneSwitcher.switchTimeZone(to: "Not/AZone; touch /tmp/pwned")
+            XCTFail("Expected invalid identifier to be rejected")
+        } catch let error as ZoneSwitchError {
+            XCTAssertEqual(error.localizedDescription, "Authorization failed: Invalid time zone: Not/AZone; touch /tmp/pwned")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    // MARK: - PrivilegedRunner timeout (SystemZoneSwitcher)
+
+    /// A hung child (osascript `delay 30`) must be terminated by the internal
+    /// timeout instead of blocking forever; the caller gets the timeout error.
+    @MainActor
+    func testPrivilegedRunnerTimesOutAndKillsChild() async {
+        let start = Date()
+        do {
+            try await PrivilegedRunner.run(script: "delay 30", timeout: 1)
+            XCTFail("Expected timeout error")
+        } catch let error as ZoneSwitchError {
+            XCTAssertTrue(error.localizedDescription.contains("Timed out"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        // Must return well before the child's 30 s delay would finish.
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
+
+    // MARK: - Day/night (TimeZoneStore)
+
+    @MainActor
+    func testIsDaytimeFixedInstant() {
+        let store = makeStore()
+        // 2026-08-18 04:00 UTC = 13:00 in Tokyo (day) = 00:00 in New York (night,
+        // EDT). Fixed date so the assertion never drifts with the clock.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .gmt
+        let fixed = cal.date(from: DateComponents(year: 2026, month: 8, day: 18, hour: 4, minute: 0))!
+        store.now = fixed
+        XCTAssertTrue(store.isDaytime(in: "Asia/Tokyo"))
+        XCTAssertFalse(store.isDaytime(in: "America/New_York"))
+    }
+
+    // MARK: - Cached formatters (TimeZoneStore)
+
+    @MainActor
+    func testCachedFormatterReusesInstance() {
+        let a = TimeZoneStore.cachedFormatter(format: "HH:mm", timeZone: TimeZone(identifier: "Asia/Shanghai"))
+        let b = TimeZoneStore.cachedFormatter(format: "HH:mm", timeZone: TimeZone(identifier: "Asia/Shanghai"))
+        XCTAssertTrue(a === b, "Same (format, zone) pair must return the same instance")
+
+        let c = TimeZoneStore.cachedFormatter(format: "HH:mm", timeZone: TimeZone(identifier: "Asia/Tokyo"))
+        XCTAssertFalse(a === c, "Different zone must not share a formatter")
+
+        let d = TimeZoneStore.cachedFormatter(format: "h:mm a", timeZone: TimeZone(identifier: "Asia/Shanghai"))
+        XCTAssertFalse(a === d, "Different format must not share a formatter")
     }
 }

@@ -405,20 +405,25 @@ final class TimeZoneStore: ObservableObject {
     /// Calculate if sun is up at the given location and time
     /// Uses a simplified solar position algorithm
     private static func isSunUp(latitude: Double, longitude: Double, date: Date, timeZone: TimeZone) -> Bool {
-        // Convert to UTC
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = .gmt
-
-        let hour = cal.component(.hour, from: date)
-        let minute = cal.component(.minute, from: date)
+        // The clock reading must be the zone's LOCAL time: taking the UTC hour
+        // and then subtracting the offset again double-counts the offset and
+        // shifts the day/night boundary by the full zone difference (e.g. Tokyo
+        // 13:00 was judged "night").
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = timeZone
+        let hour = local.component(.hour, from: date)
+        let minute = local.component(.minute, from: date)
 
         // Day of year (handles leap years correctly via the calendar)
-        let dayOfYear = cal.ordinality(of: .day, in: .year, for: date) ?? 1
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = .gmt
+        let dayOfYear = utc.ordinality(of: .day, in: .year, for: date) ?? 1
 
         // Solar declination (simplified)
         let declination = -23.44 * cos((2.0 * .pi / 365.0) * Double(dayOfYear + 10))
 
-        // Hour angle
+        // Hour angle. The local clock hour already includes the zone offset, so
+        // express it back in UTC and then correct for longitude.
         let fractionalHour = Double(hour) + Double(minute) / 60.0
         let utcHour = fractionalHour - Double(timeZone.secondsFromGMT()) / 3600.0
         let solarTime = utcHour + longitude / 15.0
