@@ -158,6 +158,8 @@ final class Updater: ObservableObject {
             do shell script "rm -rf " & quoted form of "/Applications/TravelTime.app" & " && cp -R " & quoted form of "\(newApp.path)" & " /Applications/TravelTime.app && open " & quoted form of "/Applications/TravelTime.app" with administrator privileges
             """
             try await PrivilegedRunner.run(script: script)
+            // Clean up the download/unzip scratch dir before relaunching.
+            try? FileManager.default.removeItem(at: tmp)
             state = .idle
             NSApp.terminate(nil)   // Replaced successfully; quit so the new instance takes over
         } catch {

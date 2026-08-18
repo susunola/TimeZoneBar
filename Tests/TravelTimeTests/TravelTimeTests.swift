@@ -92,12 +92,82 @@ final class TravelTimeTests: XCTestCase {
 
     @MainActor
     func testDayDifferenceSameZoneIsZero() {
-        let store = TimeZoneStore()
+        let store = makeStore()
         // A zone whose id equals the host system zone is always "Today".
         let zone = ZoneEntry(id: TimeZone.current.identifier,
                              label: "Local",
                              region: "",
                              color: "#007AFF")
         XCTAssertEqual(store.dayDifference(for: zone), 0)
+    }
+
+    // MARK: - Current zone highlight (uuid)
+
+    /// A fresh store backed by an isolated defaults suite, so tests never read
+    /// or write the real app preferences.
+    @MainActor
+    private func makeStore() -> TimeZoneStore {
+        let suiteName = "tz.test.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        suite.removePersistentDomain(forName: suiteName)
+        return TimeZoneStore(defaults: suite)
+    }
+
+    @MainActor
+    func testCurrentZoneUUIDRestoredOnLaunch() throws {
+        // Two rows share Europe/Berlin. The user highlighted Frankfurt; on a
+        // relaunch the highlight must land on Frankfurt, not the first match
+        // (Berlin).
+        let suiteName = "tz.test.uuid.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let berlin = ZoneEntry(id: "Europe/Berlin", label: "Berlin", region: "Germany", color: "#FF9F0A")
+        let frankfurt = ZoneEntry(id: "Europe/Berlin", label: "Frankfurt", region: "Germany", color: "#FF9F0A")
+        suite.set(try JSONEncoder().encode([berlin, frankfurt]), forKey: "zones.v1")
+        suite.set("Europe/Berlin", forKey: "currentZone.v1")
+        suite.set(frankfurt.uuid.uuidString, forKey: "currentZoneUUID.v1")
+
+        let store = TimeZoneStore(defaults: suite)
+        XCTAssertEqual(store.currentZoneUUID, frankfurt.uuid)
+    }
+
+    @MainActor
+    func testDeletingCurrentRowRematchesByID() throws {
+        // Restore Defaults / row deletion wipes the highlighted row — the
+        // highlight must fall back to another row with the same IANA id rather
+        // than vanishing entirely (which also re-enables its Remove button).
+        let suiteName = "tz.test.rematch.\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let berlin = ZoneEntry(id: "Europe/Berlin", label: "Berlin", region: "Germany", color: "#FF9F0A")
+        let frankfurt = ZoneEntry(id: "Europe/Berlin", label: "Frankfurt", region: "Germany", color: "#FF9F0A")
+        suite.set(try JSONEncoder().encode([berlin, frankfurt]), forKey: "zones.v1")
+        suite.set("Europe/Berlin", forKey: "currentZone.v1")
+        suite.set(berlin.uuid.uuidString, forKey: "currentZoneUUID.v1")
+
+        let store = TimeZoneStore(defaults: suite)
+        XCTAssertEqual(store.currentZoneUUID, berlin.uuid)
+
+        store.zones.removeAll { $0.uuid == berlin.uuid }
+        XCTAssertEqual(store.currentZoneUUID, frankfurt.uuid)
+    }
+
+    @MainActor
+    func testZonePaletteCycles() {
+        let store = makeStore()
+        // The palette is longer than the default zone count, so consecutive
+        // adds never repeat the same color until it wraps.
+        var seen = Set<String>()
+        for _ in 0..<TimeZoneStore.zonePalette.count {
+            let color = store.nextZoneColor()
+            seen.insert(color)
+            store.zones.append(ZoneEntry(id: "Test/\(seen.count)",
+                                         label: "T\(seen.count)",
+                                         region: "",
+                                         color: color))
+        }
+        XCTAssertEqual(seen.count, TimeZoneStore.zonePalette.count)
     }
 }

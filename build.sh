@@ -64,3 +64,21 @@ rm -rf "$APP"
 echo "  removed: $APP (build artifact deployed already)"
 
 echo "Done: /Applications/$NAME.app"
+
+# --- Optional release packaging -------------------------------------------
+# `./build.sh release` additionally zips the deployed app into release/ and
+# prints its SHA256. The updater refuses to install a release whose notes lack
+# a "SHA256: <64-hex>" line, so paste the printed hash into the GitHub release
+# notes or users will not be able to update.
+if [ "${1:-}" = "release" ]; then
+    echo "==> 7/4 Packaging release zip + SHA256"
+    VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Applications/$NAME.app/Contents/Info.plist" 2>/dev/null || echo "0.0.0")
+    ZIP="release/$NAME-$VERSION.app.zip"
+    mkdir -p release
+    rm -f "$ZIP"
+    ditto -c -k --sequesterRsrc --keepParent "/Applications/$NAME.app" "$ZIP"
+    HASH=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+    echo "  zip: $ZIP"
+    echo "  SHA256: $HASH"
+    echo "  --> Paste into the GitHub release notes as: SHA256: $HASH"
+fi

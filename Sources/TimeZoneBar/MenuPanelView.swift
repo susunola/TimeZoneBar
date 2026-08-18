@@ -130,9 +130,6 @@ struct MenuPanelView: View {
         .background(palette.window)
         .onAppear {
             store.refreshAutoTimezoneFlag()
-            // Errors from a previous interaction shouldn't linger on the next
-            // panel open.
-            store.lastError = nil
         }
     }
 }
@@ -155,9 +152,7 @@ struct HeaderView: View {
     private var accent: Color { palette.accent }
 
     private var dateText: String {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE, MMM d"
-        return f.string(from: store.now)
+        TimeZoneStore.cachedFormatter(format: "EEEE, MMM d").string(from: store.now)
     }
 
     var body: some View {
@@ -254,7 +249,11 @@ struct QuoteView: View {
     ]
 
     private var quote: String {
-        let hour = Calendar.current.component(.hour, from: store.now)
+        // Rotate by the hour of the DISPLAYED zone, not the host system zone —
+        // "morning" quotes should match what the panel is actually showing.
+        var cal = Calendar.current
+        cal.timeZone = TimeZone(identifier: store.currentZoneIdentifier) ?? .current
+        let hour = cal.component(.hour, from: store.now)
         return Self.quotes[hour % Self.quotes.count]
     }
 
@@ -327,7 +326,7 @@ struct AddZoneRow: View {
                     store.zones.append(ZoneEntry(id: item.id,
                                                  label: item.label,
                                                  region: item.region,
-                                                 color: "#007AFF"))
+                                                 color: store.nextZoneColor()))
                 }
             }
         } label: {
@@ -410,6 +409,10 @@ struct ZoneRowView: View {
         }
         .frame(width: 46)
         .opacity(hovered ? 1 : 0)
+        // Invisible buttons must not be clickable — without this, the 46pt
+        // strip is a silent delete/replace trigger even before the row is
+        // hovered.
+        .allowsHitTesting(hovered)
     }
 
     private func replace(with item: (id: String, label: String, region: String)) {
@@ -424,7 +427,7 @@ struct ZoneRowView: View {
                                      uuid: zone.uuid)
         if wasCurrent {
             store.currentZoneUUID = store.zones[idx].uuid
-            store.setCurrentZone(item.id)
+            store.setCurrentZone(item.id, uuid: store.zones[idx].uuid)
         }
     }
 
@@ -701,17 +704,8 @@ struct AvatarView: View {
 
     private var isDay: Bool { store.isDaytime(in: store.currentZoneIdentifier) }
 
-    /// Resolve the avatar to display: user-picked first, bundled fallback second.
-    private var nsImage: NSImage? {
-        if let p = store.avatarPath, let img = NSImage(contentsOfFile: p) {
-            return img
-        }
-        if let url = Bundle.main.url(forResource: "avatar", withExtension: "jpg"),
-           let img = NSImage(contentsOf: url) {
-            return img
-        }
-        return nil
-    }
+    /// Cached in the store — never re-decoded from disk on every redraw.
+    private var nsImage: NSImage? { store.avatarImage }
 
     var body: some View {
         Button {
@@ -733,22 +727,15 @@ struct AvatarView: View {
                         .font(.system(size: 24))
                         .foregroundColor(isDay ? Color.orange : Color.indigo)
                 }
+                // Bottom corners: day/night indicator (left) + camera hint (right).
                 VStack {
                     Spacer()
                     HStack {
-                        Spacer()
                         Image(systemName: isDay ? "sun.max.fill" : "moon.fill")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .padding(4)
                             .background(Circle().fill(isDay ? Color.orange : Color.indigo))
-                    }
-                }
-                .frame(width: 64, height: 64)
-                // Small "camera" badge hinting the avatar is clickable
-                VStack {
-                    Spacer()
-                    HStack {
                         Spacer()
                         Image(systemName: "camera.fill")
                             .font(.system(size: 8, weight: .bold))
@@ -783,14 +770,28 @@ struct MenuBarLabel: View {
 // MARK: - Color helper
 
 extension Color {
+    /// Parses "#RRGGBB", "RRGGBB", 3-digit shorthand and 8-digit "#RRGGBBAA".
+    /// Invalid input falls back to a neutral gray instead of silently black.
     init(hex: String) {
-        var value: UInt64 = 0
-        var s = hex
+        var s = hex.trimmingCharacters(in: .whitespaces)
         if s.hasPrefix("#") { s.removeFirst() }
-        Scanner(string: s).scanHexInt64(&value)
+        let expanded: String
+        switch s.count {
+        case 3: expanded = s.map { "\($0)\($0)" }.joined()
+        case 6, 8: expanded = s
+        default:
+            self.init(.sRGB, red: 0.5, green: 0.5, blue: 0.5, opacity: 1)
+            return
+        }
+        var value: UInt64 = 0
+        guard Scanner(string: expanded).scanHexInt64(&value) else {
+            self.init(.sRGB, red: 0.5, green: 0.5, blue: 0.5, opacity: 1)
+            return
+        }
         let r = Double((value >> 16) & 0xFF) / 255.0
         let g = Double((value >> 8) & 0xFF) / 255.0
         let b = Double(value & 0xFF) / 255.0
-        self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
+        let a = s.count == 8 ? Double(value & 0xFF) / 255.0 : 1
+        self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
 }

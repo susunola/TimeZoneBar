@@ -6,6 +6,8 @@ struct SettingsView: View {
     @StateObject private var updater = Updater()
     @State private var addSelection = 0
     @State private var launchAtLogin = false
+    @State private var showUninstallConfirm = false
+    @State private var isUninstalling = false
 
     private var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
 
@@ -104,7 +106,7 @@ struct SettingsView: View {
                             store.zones.append(ZoneEntry(id: item.id,
                                                          label: item.label,
                                                          region: item.region,
-                                                         color: "#007AFF"))
+                                                         color: store.nextZoneColor()))
                         }
                         .disabled(addSelection >= Self.commonZones.count
                                   || store.zones.contains {
@@ -264,9 +266,6 @@ struct SettingsView: View {
         }
     }
 
-    @State private var showUninstallConfirm = false
-    @State private var isUninstalling = false
-
     /// Uninstall: clear all local data, deregister login item, delete the bundle, then quit
     private func uninstall() {
         guard !isUninstalling else { return }
@@ -289,9 +288,10 @@ struct SettingsView: View {
         }
 
         // 3. Caches
-        let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        try? fm.removeItem(at: cachesDir.appendingPathComponent(bundleID))
-        try? fm.removeItem(at: cachesDir.appendingPathComponent("TravelTime"))
+        if let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? fm.removeItem(at: cachesDir.appendingPathComponent(bundleID))
+            try? fm.removeItem(at: cachesDir.appendingPathComponent("TravelTime"))
+        }
 
         // 4. Saved Application State (window restore)
         let savedState = "\(home)/Library/Saved Application State/\(bundleID).savedState"
@@ -378,7 +378,11 @@ func themeDescription(_ theme: Theme) -> String {
 struct ThemeSwatch: View {
     let theme: Theme
 
-    private static let previewTime = "01:42"
+    /// Show the real current time (via the cached formatter) instead of a
+    /// hardcoded "01:42" placeholder.
+    private var timeText: String {
+        TimeZoneStore.cachedFormatter(format: "HH:mm").string(from: Date())
+    }
 
     var body: some View {
         ZStack {
@@ -395,7 +399,7 @@ struct ThemeSwatch: View {
                 .stroke(accentColor, lineWidth: 2)
                 .frame(width: 30, height: 30)
             // Mini time text in theme's typography
-            Text(Self.previewTime)
+            Text(timeText)
                 .font(.system(size: 11, weight: .semibold, design: previewDesign))
                 .monospacedDigit()
                 .foregroundColor(textColor)

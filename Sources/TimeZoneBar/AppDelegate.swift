@@ -164,6 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         store.setPanelVisible(true)
+        // Errors from a previous interaction shouldn't linger on the next open.
+        store.lastError = nil
     }
 
     private func startTimer() {

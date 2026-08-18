@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AppKit   // NSImage (avatar caching)
 
 /// One row in the zone list.
 ///
@@ -122,6 +123,7 @@ final class TimeZoneStore: ObservableObject {
     /// choose-avatar callback has written a new file.
     func reloadAvatar() {
         avatarPath = Self.userAvatarURL()?.path
+        avatarImage = Self.loadAvatarImage()
     }
 
     /// Injected by AppDelegate: called whenever the zone list changes, so the
@@ -141,9 +143,10 @@ final class TimeZoneStore: ObservableObject {
         isPanelVisible = visible
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private static let zonesKey = "zones.v1"
     private static let currentZoneKey = "currentZone.v1"
+    private static let currentZoneUUIDKey = "currentZoneUUID.v1"
     private static let showDateKey = "pref.showDate"
     private static let use24HourKey = "pref.use24Hour"
     private static let themeKey = "pref.theme"
@@ -153,6 +156,9 @@ final class TimeZoneStore: ObservableObject {
     /// to use the bundled default. Reloaded on demand (Refresh) or when
     /// the user picks a new image (Choose avatar callback).
     @Published var avatarPath: String?
+
+    /// Decoded avatar image, loaded once (never re-decoded on every redraw).
+    @Published var avatarImage: NSImage?
 
     /// Path to the user-picked avatar saved on disk (Application Support).
     /// Returns nil if the user has not picked one.
@@ -168,6 +174,19 @@ final class TimeZoneStore: ObservableObject {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// User-picked avatar first, bundled fallback second. NSImage decodes from
+    /// disk — keep the result around instead of re-decoding every frame.
+    private static func loadAvatarImage() -> NSImage? {
+        if let p = userAvatarURL()?.path, let img = NSImage(contentsOfFile: p) {
+            return img
+        }
+        if let url = Bundle.main.url(forResource: "avatar", withExtension: "jpg"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        return nil
+    }
+
     static let defaultZones: [ZoneEntry] = [
         ZoneEntry(id: "Asia/Shanghai", label: "Beijing", region: "China", color: "#007AFF"),
         ZoneEntry(id: "Asia/Bangkok", label: "Bangkok", region: "Thailand", color: "#64D2FF"),
@@ -177,9 +196,19 @@ final class TimeZoneStore: ObservableObject {
         ZoneEntry(id: "Asia/Tokyo", label: "Tokyo", region: "Japan", color: "#BF5AF2")
     ]
 
-    init() {
+    /// Accent colors cycled for user-added zones so the list doesn't turn all blue.
+    static let zonePalette = ["#007AFF", "#64D2FF", "#5E5CE6", "#FF9F0A", "#30D158", "#BF5AF2", "#FF453A", "#FFD60A"]
+
+    /// Next accent color for a newly added zone.
+    func nextZoneColor() -> String {
+        Self.zonePalette[zones.count % Self.zonePalette.count]
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // Load custom avatar path if the user previously picked one
         avatarPath = Self.userAvatarURL()?.path
+        avatarImage = Self.loadAvatarImage()
         // Only fall back to defaults when the key has NEVER been written.
         // An intentionally empty array (user deleted every zone) must survive
         // restarts — checking `object(forKey:) == nil` distinguishes the two.
@@ -202,14 +231,21 @@ final class TimeZoneStore: ObservableObject {
         showDateInMenuBar = defaults.object(forKey: Self.showDateKey) as? Bool ?? false
         use24Hour = defaults.object(forKey: Self.use24HourKey) as? Bool ?? true
         theme = Theme(rawValue: defaults.string(forKey: Self.themeKey) ?? "") ?? .minimal
-        // Highlight the row matching the persisted current zone. Placed after
-        // every stored property is initialized (reading self properties is only
-        // allowed once all of them are), and written as a plain loop so no
-        // closure captures self during init.
+        // Restore the highlighted row. Prefer the persisted uuid (so a
+        // Frankfurt row stays highlighted after restart even though Berlin
+        // shares its IANA id); fall back to the first row matching the id.
+        // Written with plain loops (no closures) because this runs during
+        // init, before all stored properties are initialized.
         var matchedUUID: UUID?
-        for z in zones where z.id == currentZoneIdentifier {
-            matchedUUID = z.uuid
-            break
+        if let s = defaults.string(forKey: Self.currentZoneUUIDKey),
+           let u = UUID(uuidString: s),
+           zones.contains(where: { $0.uuid == u }) {
+            matchedUUID = u
+        } else {
+            for z in zones where z.id == currentZoneIdentifier {
+                matchedUUID = z.uuid
+                break
+            }
         }
         currentZoneUUID = matchedUUID
         // autoTimezoneEnabled keeps its default false; refreshed asynchronously below
@@ -218,11 +254,12 @@ final class TimeZoneStore: ObservableObject {
     }
 
     /// Drops the current-row pointer when its row was deleted / replaced by
-    /// Restore Defaults. The header falls back to a lookup by IANA id.
+    /// Restore Defaults. Falls back to the first row with the same IANA id so
+    /// the highlight (and the Remove-disabled state) stays sane — e.g. after
+    /// Restore Defaults the Beijing row is highlighted again.
     private func sanitizeCurrentZone() {
-        if let u = currentZoneUUID, !zones.contains(where: { $0.uuid == u }) {
-            currentZoneUUID = nil
-        }
+        guard let u = currentZoneUUID, !zones.contains(where: { $0.uuid == u }) else { return }
+        currentZoneUUID = zones.first { $0.id == currentZoneIdentifier }?.uuid
     }
 
     // MARK: - Auto timezone monitoring
@@ -267,23 +304,34 @@ final class TimeZoneStore: ObservableObject {
 
     // MARK: - Display helpers
 
+    /// Cached DateFormatters — constructing one is expensive and the panel
+    /// redraws every minute, so reuse per (format, timezone) pair. Only ever
+    /// touched on the main actor.
+    private static var formatterCache: [String: DateFormatter] = [:]
+
+    static func cachedFormatter(format: String, timeZone: TimeZone? = nil) -> DateFormatter {
+        let key = "\(format)|\(timeZone?.identifier ?? "local")"
+        if let f = formatterCache[key] { return f }
+        let f = DateFormatter()
+        f.dateFormat = format
+        f.timeZone = timeZone ?? .current
+        formatterCache[key] = f
+        return f
+    }
+
     var menuBarText: String {
         let time = timeString(for: currentZoneIdentifier)
         let offset = Self.offsetString(for: currentZoneIdentifier)
         if showDateInMenuBar {
-            let f = DateFormatter()
-            f.dateFormat = "M/d"
-            return "\(f.string(from: now)) \(time) \(offset)"
+            return "\(Self.cachedFormatter(format: "M/d").string(from: now)) \(time) \(offset)"
         }
         return "\(time) \(offset)"
     }
 
     func timeString(for identifier: String) -> String {
         guard let tz = TimeZone(identifier: identifier) else { return "--:--" }
-        let f = DateFormatter()
-        f.dateFormat = use24Hour ? "HH:mm" : "h:mm a"
-        f.timeZone = tz
-        return f.string(from: now)
+        let format = use24Hour ? "HH:mm" : "h:mm a"
+        return Self.cachedFormatter(format: format, timeZone: tz).string(from: now)
     }
 
     func timeString(for zone: ZoneEntry) -> String {
@@ -437,6 +485,7 @@ final class TimeZoneStore: ObservableObject {
                 currentZoneIdentifier = id
                 currentZoneUUID = uuid
                 defaults.set(id, forKey: Self.currentZoneKey)
+                defaults.set(uuid.uuidString, forKey: Self.currentZoneUUIDKey)
                 let flag = await Self.readAutoTimezoneFlagAsync()
                 autoTimezoneEnabled = flag
             } catch let error as ZoneSwitchError {
@@ -491,7 +540,7 @@ final class TimeZoneStore: ObservableObject {
             let entry = ZoneEntry(id: d.timezone,
                                   label: d.city.isEmpty ? d.timezone : d.city,
                                   region: d.country,
-                                  color: "#007AFF")
+                                  color: nextZoneColor())
             zones.append(entry)     // didSet persists
             switchTo(entry)
         }
@@ -510,9 +559,13 @@ final class TimeZoneStore: ObservableObject {
     /// Used when the current row is replaced in-place — the header follows the
     /// new city, but the OS time zone itself only changes when the user clicks
     /// a row (that path is admin-gated).
-    func setCurrentZone(_ id: String) {
+    func setCurrentZone(_ id: String, uuid: UUID? = nil) {
         currentZoneIdentifier = id
         defaults.set(id, forKey: Self.currentZoneKey)
+        if let uuid {
+            currentZoneUUID = uuid
+            defaults.set(uuid.uuidString, forKey: Self.currentZoneUUIDKey)
+        }
     }
 
     /// Reads the "Set time zone automatically" flag.
