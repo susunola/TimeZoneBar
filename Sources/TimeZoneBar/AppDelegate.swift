@@ -210,7 +210,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentViewController: host)
         window.title = "TravelTime Settings"
         window.setContentSize(NSSize(width: 480, height: 460))
-        window.styleMask = [.titled, .closable]
+        // `.resizable` is required for the user to drag the edges to resize —
+        // the main panel uses the same mask. Without it, the window is fixed-size.
+        // `.resizable` requires `.titled`, which is already present.
+        window.styleMask = [.titled, .closable, .resizable]
+        window.minSize = NSSize(width: 480, height: 460)
         window.center()
         let controller = NSWindowController(window: window)
         controller.showWindow(nil)
