@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ZoneEntry: Identifiable, Codable, Hashable {
     var id: String      // IANA identifier, e.g. Asia/Shanghai
@@ -13,9 +14,34 @@ struct DetectedZone: Equatable {
     var country: String
 }
 
+// MARK: - Theme
+
+enum Theme: String, CaseIterable, Identifiable {
+    case minimal    // 原生极简
+    case glass      // 高级玻璃
+    case midnight   // 深夜沉浸
+    case editorial  // 杂志编辑
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .minimal: return "原生极简"
+        case .glass: return "高级玻璃"
+        case .midnight: return "深夜沉浸"
+        case .editorial: return "杂志编辑"
+        }
+    }
+}
+
 @MainActor
 final class TimeZoneStore: ObservableObject {
-    @Published var zones: [ZoneEntry]
+    @Published var zones: [ZoneEntry] {
+        didSet {
+            save()              // persist changes (add/remove/replace)
+            onZonesChanged()    // notify AppDelegate to resize the window
+        }
+    }
     @Published var now = Date()
     @Published var currentZoneIdentifier: String
     @Published var autoTimezoneEnabled = false
@@ -31,14 +57,61 @@ final class TimeZoneStore: ObservableObject {
     @Published var use24Hour: Bool {
         didSet { defaults.set(use24Hour, forKey: Self.use24HourKey) }
     }
+    @Published var theme: Theme {
+        didSet { defaults.set(theme.rawValue, forKey: Self.themeKey) }
+    }
 
     /// Injected by AppDelegate: opens the settings window
     var openSettings: () -> Void = {}
 
+    /// Injected by AppDelegate: shows an open panel for picking a custom avatar image.
+    /// The picked file is copied into Application Support/TravelTime/avatar.jpg and
+    /// `avatarPath` is reloaded so the AvatarView updates.
+    var chooseAvatar: () -> Void = {}
+
+    /// Re-reads the user avatar from disk and republishes. Call after the
+    /// choose-avatar callback has written a new file.
+    func reloadAvatar() {
+        avatarPath = Self.userAvatarURL()?.path
+    }
+
+    /// Injected by AppDelegate: called whenever the zone list changes, so the
+    /// window can auto-resize to fit the new number of rows.
+    var onZonesChanged: () -> Void = {}
+
+    /// Window control callbacks — injected by AppDelegate. Used by the
+    /// custom-drawn title bar (traffic lights) in MenuPanelView, since the
+    /// borderless NSPanel has no system window chrome.
+    var closeWindow: () -> Void = {}
+    var minimizeWindow: () -> Void = {}
+    var zoomWindow: () -> Void = {}
+
     private let defaults = UserDefaults.standard
     private static let zonesKey = "zones.v1"
+    private static let currentZoneKey = "currentZone.v1"
     private static let showDateKey = "pref.showDate"
     private static let use24HourKey = "pref.use24Hour"
+    private static let themeKey = "pref.theme"
+    private var autoTimezoneMonitor: AnyCancellable?
+
+    /// Path to the user-selected avatar image in Application Support, or nil
+    /// to use the bundled default. Reloaded on demand (Refresh) or when
+    /// the user picks a new image (Choose avatar callback).
+    @Published var avatarPath: String?
+
+    /// Path to the user-picked avatar saved on disk (Application Support).
+    /// Returns nil if the user has not picked one.
+    static func userAvatarURL() -> URL? {
+        guard let support = try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else { return nil }
+        let dir = support.appendingPathComponent("TravelTime", isDirectory: true)
+        let url = dir.appendingPathComponent("avatar.jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
 
     static let defaultZones: [ZoneEntry] = [
         ZoneEntry(id: "Asia/Shanghai", label: "Beijing", region: "China", color: "#007AFF"),
@@ -50,24 +123,71 @@ final class TimeZoneStore: ObservableObject {
     ]
 
     init() {
-        if let data = defaults.data(forKey: Self.zonesKey),
-           let saved = try? JSONDecoder().decode([ZoneEntry].self, from: data),
-           !saved.isEmpty {
+        // Load custom avatar path if the user previously picked one
+        avatarPath = Self.userAvatarURL()?.path
+        // Only fall back to defaults when the key has NEVER been written.
+        // An intentionally empty array (user deleted every zone) must survive
+        // restarts — checking `object(forKey:) == nil` distinguishes the two.
+        if defaults.object(forKey: Self.zonesKey) != nil,
+           let data = defaults.data(forKey: Self.zonesKey),
+           let saved = try? JSONDecoder().decode([ZoneEntry].self, from: data) {
             zones = saved
         } else {
             zones = Self.defaultZones
         }
-        currentZoneIdentifier = TimeZone.current.identifier
+        // Default to Beijing time if the user has not explicitly chosen another zone yet.
+        // This makes the app behave correctly out-of-the-box regardless of the
+        // host system's timezone (which can be Bangkok or anything else).
+        if let savedZone = defaults.string(forKey: Self.currentZoneKey),
+           TimeZone(identifier: savedZone) != nil {
+            currentZoneIdentifier = savedZone
+        } else {
+            currentZoneIdentifier = "Asia/Shanghai"
+        }
         showDateInMenuBar = defaults.object(forKey: Self.showDateKey) as? Bool ?? false
         use24Hour = defaults.object(forKey: Self.use24HourKey) as? Bool ?? true
+        theme = Theme(rawValue: defaults.string(forKey: Self.themeKey) ?? "") ?? .minimal
         // autoTimezoneEnabled keeps its default false; refreshed asynchronously below (#7)
-        
-        Task {
+        refreshAutoTimezoneFlag()
+        startAutoTimezoneMonitoring()
+    }
+
+    // MARK: - Auto timezone monitoring
+
+    /// Re-reads the macOS "Set time zone automatically" flag and publishes it.
+    /// Safe to call repeatedly — cheap, non-blocking (background process read).
+    func refreshAutoTimezoneFlag() {
+        Task { [weak self] in
             let flag = await Self.readAutoTimezoneFlagAsync()
             await MainActor.run {
-                self.autoTimezoneEnabled = flag
+                guard let self else { return }
+                if self.autoTimezoneEnabled != flag {
+                    self.autoTimezoneEnabled = flag
+                }
             }
         }
+    }
+
+    /// Keeps the warning banner in sync with System Settings:
+    /// 1. refreshes when the system time zone changes, and
+    /// 2. polls the flag every 30 s so toggling "Set time zone automatically"
+    ///    in System Settings hides the banner on its own.
+    private func startAutoTimezoneMonitoring() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTimeZoneChange(_:)),
+            name: .NSSystemTimeZoneDidChange,
+            object: nil
+        )
+        autoTimezoneMonitor = Timer.publish(every: 30, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.refreshAutoTimezoneFlag()
+            }
+    }
+
+    @objc private func handleTimeZoneChange(_ note: Notification) {
+        refreshAutoTimezoneFlag()
     }
 
     // MARK: - Display helpers
@@ -222,8 +342,14 @@ final class TimeZoneStore: ObservableObject {
                     try await group.next()!
                 }
                 currentZoneIdentifier = id
+                defaults.set(id, forKey: Self.currentZoneKey)
                 let flag = await Self.readAutoTimezoneFlagAsync()
                 autoTimezoneEnabled = flag
+            } catch let error as ZoneSwitchError {
+                // User canceling the authorization dialog is a deliberate "no",
+                // not an error to surface — keep the panel quiet.
+                if case .userCanceled = error { }
+                else { lastError = error.localizedDescription }
             } catch {
                 lastError = error.localizedDescription
             }
@@ -279,6 +405,13 @@ final class TimeZoneStore: ObservableObject {
         } catch {
             lastError = "Failed to save settings: \(error.localizedDescription)"
         }
+    }
+
+    /// Persists a current-zone change without running the privileged switcher
+    /// (used when the current row is replaced in-place).
+    func setCurrentZone(_ id: String) {
+        currentZoneIdentifier = id
+        defaults.set(id, forKey: Self.currentZoneKey)
     }
 
     /// #7: Reads the "Set time zone automatically" flag from /Library/Preferences/com.apple.timezone.auto (async version)

@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "TimeZoneBar",
+    name: "TravelTime",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "TimeZoneBar",
+            name: "TravelTime",
             path: "Sources/TimeZoneBar"
         )
     ]

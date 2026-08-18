@@ -1,11 +1,25 @@
 #!/bin/bash
-# TimeZoneBar build script: compile -> assemble the .app -> sign
+# TravelTime build script: compile -> assemble the .app -> sign
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NAME="TimeZoneBar"
+NAME="TravelTime"
 DIST="dist"
 APP="$DIST/$NAME.app"
+
+# --- 清理 dist：只保留当前最新的 .app --------------------------------
+# macOS Launchpad 会把 dist 里每一个 .app 和 zip 里的 Info.plist 都渲染成
+# 独立图标（幽灵图标问题）。这里每次 build 前把 dist 里的所有 zip 和
+# 非当前名的 .app 全部清掉，保证 dist 永远只有一份 TravelTime.app。
+echo "==> 0/4 Cleaning dist (old artifacts)"
+mkdir -p "$DIST"
+rm -rf "$DIST"/*.zip
+for d in "$DIST"/*.app; do
+    if [ -d "$d" ] && [ "$(basename "$d")" != "$NAME.app" ]; then
+        rm -rf "$d"
+        echo "  removed stale: $(basename "$d")"
+    fi
+done
 
 echo "==> 1/4 swift build (release)"
 swift build -c release --disable-sandbox
@@ -18,12 +32,34 @@ cp "Resources/Info.plist" "$APP/Contents/Info.plist"
 if [ -f "Resources/AppIcon.icns" ]; then
   cp "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+# Bundle any other top-level assets from Resources/ (avatar image, etc.)
+# so the .app stays self-contained. Skip subdirectories and known special files.
+if [ -d "Resources" ]; then
+    for f in Resources/*; do
+        [ -d "$f" ] && continue
+        case "$(basename "$f")" in
+            Info.plist|AppIcon.icns|.DS_Store) continue ;;
+        esac
+        cp "$f" "$APP/Contents/Resources/$(basename "$f")"
+    done
+fi
 
-echo "==> 3/4 Ad-hoc signing"
-codesign --force --sign - "$APP"
+echo "==> 3/4 Code signing (self-signed certificate: 'TimeZoneBar Developer')"
+codesign --force --sign "TimeZoneBar Developer" --options runtime --identifier com.atom.tzbar "$APP"
 
 echo "==> 4/4 Verifying"
 plutil -lint "$APP/Contents/Info.plist"
 codesign --verify --deep --strict "$APP" && echo "Signature verified"
 
-echo "Done: $APP"
+echo "==> 5/4 Deploying to /Applications (single source of truth)"
+pkill -9 -f "$NAME" 2>/dev/null || true
+sleep 1
+rm -rf "/Applications/$NAME.app"
+ditto "$APP" "/Applications/$NAME.app"
+echo "  deployed: /Applications/$NAME.app"
+
+echo "==> 6/4 Cleaning dist so Launchpad never sees a duplicate"
+rm -rf "$APP"
+echo "  removed: $APP (build artifact deployed already)"
+
+echo "Done: /Applications/$NAME.app"

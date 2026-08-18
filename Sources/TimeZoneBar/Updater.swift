@@ -16,7 +16,7 @@ struct GitHubRelease: Decodable {
 @MainActor
 final class Updater: ObservableObject {
     static let repoOwner = "susunola"
-    static let repoName = "TimeZoneBar"
+    static let repoName = "TravelTime"
 
     enum State {
         case idle
@@ -128,7 +128,7 @@ final class Updater: ObservableObject {
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("tzbar-update-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-            let zipPath = tmp.appendingPathComponent("TimeZoneBar.app.zip")
+            let zipPath = tmp.appendingPathComponent("TravelTime.app.zip")
             try data.write(to: zipPath)
 
             let unzip = Process()
@@ -143,14 +143,14 @@ final class Updater: ObservableObject {
                 return
             }
 
-            let newApp = tmp.appendingPathComponent("TimeZoneBar.app")
+            let newApp = tmp.appendingPathComponent("TravelTime.app")
             guard FileManager.default.fileExists(atPath: newApp.path) else {
                 state = .error("Could not unzip the installer")
                 return
             }
             // With admin rights: remove the old app, copy the new one, relaunch
             let script = """
-            do shell script "rm -rf " & quoted form of "/Applications/TimeZoneBar.app" & " && cp -R " & quoted form of "\(newApp.path)" & " /Applications/TimeZoneBar.app && open " & quoted form of "/Applications/TimeZoneBar.app" with administrator privileges
+            do shell script "rm -rf " & quoted form of "/Applications/TravelTime.app" & " && cp -R " & quoted form of "\(newApp.path)" & " /Applications/TravelTime.app && open " & quoted form of "/Applications/TravelTime.app" with administrator privileges
             """
             try await PrivilegedRunner.run(script: script)
             state = .idle

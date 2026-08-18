@@ -2,12 +2,16 @@ import Foundation
 
 enum ZoneSwitchError: LocalizedError {
     case scriptUnavailable
+    case userCanceled
     case adminRejected(String)
 
     var errorDescription: String? {
         switch self {
         case .scriptUnavailable:
             return "Could not launch the osascript process"
+        case .userCanceled:
+            // Should never be shown — callers check for this case and stay silent.
+            return nil
         case .adminRejected(let msg):
             let trimmed = msg.trimmingCharacters(in: .whitespacesAndNewlines)
             return "Authorization failed: \(trimmed.isEmpty ? "unknown error" : trimmed)"
@@ -34,6 +38,12 @@ enum PrivilegedRunner {
         process.waitUntilExit()
         if process.terminationStatus != 0 {
             let msg = String(data: data, encoding: .utf8) ?? "unknown error"
+            // osascript returns 128 when the user dismisses the authorization
+            // dialog. That is the user explicitly saying "no thanks" — not an
+            // error worth surfacing in the UI.
+            if process.terminationStatus == 128 || msg.contains("User canceled") {
+                throw ZoneSwitchError.userCanceled
+            }
             throw ZoneSwitchError.adminRejected(msg)
         }
     }

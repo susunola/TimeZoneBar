@@ -6,6 +6,10 @@ import AppKit
 MainActor.assumeIsolated {
     let delegate = AppDelegate()
     NSApplication.shared.delegate = delegate
-    NSApplication.shared.setActivationPolicy(.accessory)
+    // Dock app mode: regular activation policy so the app has a Dock icon.
+    // Menu bar scene (com.apple.controlcenter.statusitems) requires a Team-ID
+    // signed identity on macOS 26, which self-signed builds lack, so the Dock
+    // icon is the primary entry point.
+    NSApplication.shared.setActivationPolicy(.regular)
     NSApplication.shared.run()
 }
