@@ -1,104 +1,231 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="TravelTime" width="104">
+
 # TravelTime
 
-<img src="assets/logo.png" alt="TravelTime logo" width="120">
+**A native macOS menu bar clock for people who work across time zones.**
 
-A lightweight macOS menu bar app for tracking multiple time zones and switching your system time zone in one click.
+Track any number of cities at a glance, and switch your Mac's system time zone
+with a single click when you land.
 
-![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9-orange)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/susunola/TravelTime/actions/workflows/ci.yml/badge.svg)](https://github.com/susunola/TravelTime/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/susunola/TravelTime?sort=semver)](https://github.com/susunola/TravelTime/releases)
+[![Platform](https://img.shields.io/badge/macOS-14.0%2B-black?logo=apple)](#requirements)
+[![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-## Four built-in themes
+[Install](#install) · [Features](#features) · [Themes](#themes) · [Build](#build-from-source) · [How it works](#how-it-works) · [FAQ](#faq)
 
-Pick the look that suits your desktop. Switch at any time from **Settings → Appearance**.
+</div>
 
-| Minimal · clean flat | Glass · card-based |
-|---|---|
-| ![Minimal theme](docs/screenshots/theme-minimal.png) | ![Glass theme](docs/screenshots/theme-glass.png) |
+---
 
-| Midnight · dark immersive | Editorial · serif + quotes |
-|---|---|
-| ![Midnight theme](docs/screenshots/theme-midnight.png) | ![Editorial theme](docs/screenshots/theme-editorial.png) |
+## Why
+
+Most world-clock utilities show you what time it is elsewhere. The tedious part
+of actually travelling is the other direction: you land, and your Mac is still
+on the time zone you left. TravelTime keeps both halves in one place — a
+multi-zone panel to read, and a one-click switch to act on.
+
+No dependencies, no Electron, no telemetry, no account. One ~700 KB binary.
 
 ## Features
 
-- **Multi-zone clock** — See your local time in the menu bar, and multiple zones at a glance in the panel. Each row shows today / yesterday / tomorrow relative to your system time zone.
-- **Day/night indicator** — A sun or moon icon next to every zone tells you instantly whether it's daytime or the middle of the night over there.
-- **DST badge** — Zones currently observing daylight saving time are tagged so offsets never surprise you.
-- **One-click time zone switching** — Click any zone to switch your entire Mac to it (requires administrator authorization).
-- **Manage zones in place** — Hover any zone to swap, replace, or delete it. Click "Add time zone" at the bottom to pick from 25 common cities. The window height adapts automatically.
-- **Custom avatar** — Click your avatar to pick any image from disk. Stored in `~/Library/Application Support/TravelTime/`.
-- **Automatic location detection** — Detects your current city and time zone via IP geolocation, then switches with one click.
-- **Conflict warning** — If macOS "Set time zone automatically" is enabled, the panel warns you and links straight to System Settings, so your manual switch doesn't get reverted. The warning disappears automatically within 30 seconds of toggling the system setting off.
-- **Built-in updater** — Check for updates and upgrade in place from the settings window.
+| | |
+|---|---|
+| **Multi-zone panel** | Local time in the menu bar, all tracked cities in the panel. Each row is labelled Today / Yesterday / Tomorrow relative to your system zone, so you never do the mental date arithmetic. |
+| **One-click zone switching** | Click a row to move your entire Mac to that zone. Uses the standard macOS authorization dialog — no password is ever stored or seen by the app. |
+| **Day/night at a glance** | A sun or moon per row, computed from a solar-elevation approximation, tells you whether it is a reasonable hour to call. |
+| **DST badge** | Zones currently on daylight saving time are tagged, so a shifted offset is never a surprise. |
+| **Live zone management** | Hover a row to replace or remove it; add from 24 preset cities. Duplicate IANA IDs are handled correctly — Berlin and Frankfurt can coexist as separate rows. |
+| **IP geolocation** | "Detect current location" resolves your city and zone, previews it, and switches on confirmation. |
+| **Conflict detection** | If macOS *Set time zone automatically* is on, it will silently revert manual switches. The panel warns you and deep-links to the relevant System Settings pane. |
+| **Four themes** | Minimal, Glass, Midnight, Editorial — switchable at runtime from Settings → Appearance. |
+| **Custom avatar** | Drop in any image; stored under `~/Library/Application Support/TravelTime/`. |
+| **In-app updates** | Checks GitHub Releases and verifies the download against a SHA-256 published in the release notes before installing. See [Known limitations](#known-limitations). |
+
+## Themes
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/theme-minimal.png" alt="Minimal theme"></td>
+<td width="50%"><img src="docs/screenshots/theme-glass.png" alt="Glass theme"></td>
+</tr>
+<tr>
+<td align="center"><b>Minimal</b> — flat rows, hairline dividers</td>
+<td align="center"><b>Glass</b> — card surfaces, generous spacing</td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/theme-midnight.png" alt="Midnight theme"></td>
+<td width="50%"><img src="docs/screenshots/theme-editorial.png" alt="Editorial theme"></td>
+</tr>
+<tr>
+<td align="center"><b>Midnight</b> — dark, cyan accent</td>
+<td align="center"><b>Editorial</b> — serif display type, quote-led</td>
+</tr>
+</table>
 
 ## Requirements
 
-- macOS 14.0 (Sonoma) or later
-- Xcode Command Line Tools (for building from source)
+- macOS 14.0 (Sonoma) or later — Apple silicon or Intel
+- To build: Swift 5.9+ toolchain (Xcode 15+ or Command Line Tools)
 
 ## Install
 
-Download the latest `TravelTime.app.zip` from [Releases](https://github.com/susunola/TravelTime/releases), unzip it, and drag `TravelTime.app` into `/Applications`.
+### From a release
 
-The app is ad-hoc signed and not notarized, so the first launch needs a right-click → **Open** to get past Gatekeeper.
+1. Download the latest `.app.zip` from the [Releases page](https://github.com/susunola/TravelTime/releases).
+2. Unzip and move `TravelTime.app` to `/Applications`.
+3. The build is ad-hoc signed and **not notarized**, so Gatekeeper will block the
+   first launch. Right-click the app → **Open** → **Open** to allow it, or:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/TravelTime.app
+   ```
 
 ### Build from source
 
 ```bash
 git clone https://github.com/susunola/TravelTime.git
 cd TravelTime
-python3 make_icon.py Resources   # generate AppIcon.icns (standard library only)
-./build.sh                       # build, assemble the .app, sign, deploy
+
+swift build -c release --disable-sandbox   # --disable-sandbox: see note below
+python3 make_icon.py Resources             # generates AppIcon.icns, stdlib only
+./build.sh                                 # bundle + sign + install to /Applications
 ```
 
-The build script automatically deploys to `/Applications/TravelTime.app` and cleans up local build artifacts so Launchpad never shows duplicates. `dist/` is kept empty on purpose.
+Notes:
+
+- `--disable-sandbox` is required on recent macOS, where SwiftPM's own sandbox
+  fails with `sandbox_apply: Operation not permitted` while compiling the
+  manifest. `build.sh` already passes it.
+- `build.sh` signs with a self-signed identity named `TimeZoneBar Developer`
+  and installs straight to `/Applications`. If you do not have that certificate
+  in your keychain, either create one in Keychain Access (*Certificate
+  Assistant → Create a Certificate*, type: Code Signing) or change the identity
+  to `-` for ad-hoc signing.
+- `dist/` is emptied after a successful build on purpose: Launchpad indexes every
+  `.app` **and every zip** it finds and would otherwise show ghost duplicates.
+
+### Cutting a release
+
+```bash
+./build.sh release
+```
+
+This builds, installs, packages `release/TravelTime-<version>.app.zip`, and
+prints its SHA-256. The release notes **must** contain a line
+`SHA256: <64 hex chars>` — the updater verifies against it and aborts the install
+if it is missing or does not match, so a release published without it cannot be
+installed by existing users.
 
 ## Usage
 
 | Action | Result |
 |---|---|
-| Click the TravelTime icon in the Dock | Open the time zone panel |
-| Click any zone row | Switch the system time zone (prompts for administrator authorization) |
-| Hover a zone → ⤺ button | Replace this zone with another city |
-| Hover a zone → ✕ button | Delete this zone from your list |
-| Bottom of panel → "Add time zone ⌄" | Pick from 25 common cities |
-| "Detect current location" | IP geolocation → preview → switch |
-| Avatar (top-left) | Click to choose a custom image |
-| Settings → Appearance | Switch between Minimal / Glass / Midnight / Editorial |
-| Settings → "Software Update" | Check for and install a new version in place |
-| Settings → "Uninstall TravelTime" | Remove the app and all local data |
-| Panel → "Quit TravelTime" | Quit (there is no Dock icon, so quit from here) |
+| Click the Dock icon (or the menu bar clock) | Show / hide the panel |
+| Click a zone row | Switch the system time zone (authorization required) |
+| Hover a row → ↻ | Replace that row with another city |
+| Hover a row → ✕ | Remove that row (the current zone cannot be removed) |
+| **Add time zone ⌄** | Add from 24 preset cities |
+| **Detect current location** | IP geolocation → preview → confirm to switch |
+| Click the avatar | Choose a custom image |
+| Settings → Appearance | Switch theme |
+| Settings → Software Update | Check GitHub Releases and update in place |
+| Settings → Uninstall | Remove the app and all local data |
+| **Quit TravelTime** | Quit |
+
+## How it works
+
+```
+main.swift            NSApplication bootstrap
+AppDelegate.swift     status item, panel window, 1 Hz tick (repaints on minute change)
+MenuPanelView.swift   SwiftUI panel + ThemePalette (4 themes)
+SettingsView.swift    preferences, theme picker, updater UI, uninstall
+TimeZoneStore.swift   @MainActor state, persistence, solar day/night, DST, day-offset
+SystemZoneSwitcher    privileged `systemsetup -settimezone` via osascript
+LocationDetector      IP geolocation with fallback endpoint
+Updater.swift         GitHub Releases check, SHA-256 verify, in-place replace
+```
+
+Design notes worth knowing before you touch the code:
+
+- **UI is AppKit-hosted SwiftUI.** An `NSWindow` with `.utilityWindow` style
+  hosting an `NSHostingView`. Borderless and transparent-titlebar variants are
+  deliberately avoided: on macOS 26 they trip a FrontBoard scene fence for
+  self-signed apps and simply never render.
+- **Privilege boundary.** Switching zones shells out to
+  `/usr/sbin/systemsetup -settimezone` through `osascript ... with administrator
+  privileges`, on a background queue with a 15 s timeout so an ignored dialog
+  cannot hang the UI or leak a child process. The zone identifier is validated
+  against `TimeZone.knownTimeZoneIdentifiers` *before* it reaches a shell string
+  — geolocation responses are untrusted input on a privileged path.
+- **Both geo endpoints are HTTPS** (`ip-api.com`, falling back to `ipapi.co`) for
+  the same reason: a spoofable plaintext response would feed a privileged call.
+- **Updates fail closed.** If no SHA-256 is found in the release notes, or it does
+  not match the download, installation is aborted.
+- **Zone rows are identified by UUID, not IANA ID**, because IANA IDs are not
+  unique per city (Berlin and Frankfurt share `Europe/Berlin`). Persisted
+  payloads from before the UUID field migrate on decode.
+- **Auto-timezone detection reads the on-disk plist only** and assumes *off* when
+  absent. On macOS 26 `defaults read` returns a stale cfprefsd value — observed
+  reporting `Active = 1` long after the setting was turned off.
+- **The minute tick is deduplicated.** The 1 Hz timer only publishes when the
+  minute actually changes, collapsing 60 redraws per minute into one.
+
+## Known limitations
+
+Documented rather than hidden:
+
+- **In-app update cannot install the currently published release.** Assets up to
+  and including v1.3.3 are named `TimeZoneBar.app.zip` (the app's former name)
+  and unzip to `TimeZoneBar.app`, while `Updater.swift` looks for
+  `TravelTime.app` after extraction. `./build.sh release` now produces a
+  correctly named `TravelTime-<version>.app.zip`, so the next release fixes
+  this; until then, update manually.
+- **The panel does not resize to fit your zones.** `AppDelegate` contains an
+  auto-height routine, but it is only wired to store callbacks that are assigned
+  after the store has already initialised, so the window stays at its initial
+  size. Measured identical (672pt) with 3 zones and with 12. With many zones the
+  list scrolls instead of growing.
+- **Not notarized.** Every release needs the Gatekeeper step above.
+- **Day/night is approximate.** Latitude/longitude come from a 23-entry lookup
+  table; zones outside it fall back to a longitude derived from the UTC offset at
+  the equator. Good enough for a badge, not for astronomy.
+- **IP geolocation is city-level at best**, and wrong on VPNs. Pick the zone
+  manually when it matters.
 
 ## FAQ
 
-**No icon in the menu bar on macOS 26?**
-Enable it under System Settings › Siri & Spotlight › Spotlight Privacy (or skip — TravelTime is a regular Dock app, just click the Dock icon).
+**Every switch asks for my password. Why?**
+Changing the system time zone is a privileged operation on macOS. The app uses
+the system authorization dialog and never stores or sees the password.
+Cancelling is treated as a deliberate "no" and reports no error.
 
-**Why does every switch ask for a password?**
-Changing the system time zone requires administrator privileges on macOS. The app uses the standard system authorization dialog and never stores your password. Cancelling the prompt silently does nothing — no error message.
+**My switch was reverted.**
+System Settings → General → Date & Time → *Set time zone automatically* takes
+precedence. The panel detects this and links you straight there; turn it off and
+the warning clears within 30 seconds.
 
-**My switch got reverted.**
-System Settings › General › Date & Time › "Set time zone automatically" overrides manual changes based on your location. The app detects this and shows a warning that links directly to the system setting; turn off automatic and the warning vanishes within 30 seconds.
+**No icon in the menu bar?**
+On macOS 26 the scene manager may refuse a status item for self-signed builds
+with no Team ID. TravelTime is a regular Dock app, so click the Dock icon
+instead — nothing is lost.
 
-**I see two TravelTime icons in Launchpad.**
-That happens when the release zip is sitting in `~/Downloads/` — Launchpad reads the bundle metadata inside the zip and treats it as a separate entry. Rename the zip to `TravelTime-vX.X.X.app.zip.bak` (drop the `.zip` suffix) and `killall Dock`.
+**Two TravelTime icons in Launchpad.**
+Launchpad indexes bundle metadata inside zip files too, so a release zip sitting
+in `~/Downloads` shows up as a second entry. Rename or remove the zip, then
+`killall Dock`.
 
-**Location detection is inaccurate.**
-Free IP geolocation is city-level at best. It's fine for travel, but pick the zone manually when precision matters.
+**I uninstalled but the icon is still there.**
+Launchpad caches its tile list. Run `killall Dock` or log out and back in.
 
-**Leftovers after uninstalling?**
-Launchpad caches its icon list, so run `killall Dock` (or log out and back in) to refresh it. That's a macOS behavior, not app residue.
+## Contributing
 
-## Technical notes
-
-- AppKit `NSStatusItem` (best-effort on macOS 26) + SwiftUI-rendered `NSWindow` panel. No third-party dependencies.
-- Time zone switching runs `/usr/sbin/systemsetup -settimezone` through an `osascript` subprocess with administrator privileges, off the main thread so the UI stays responsive during authorization.
-- Auto-timezone detection watches three signals: `NSSystemTimeZoneDidChange` notification, a 30-second poll of the system plist, and an on-appear refresh when the panel opens.
-- IP geolocation tries ip-api.com first and falls back to ipapi.co.
-- Updates come from GitHub Releases and are verified against the SHA256 published in the release notes before installation. **The release notes MUST contain a line `SHA256: <64-hex>`, or the updater refuses to install.** Run `./build.sh release` to build, deploy, package `release/TravelTime-<ver>.app.zip` and print the hash to paste into the release notes.
-- The app icon is generated by `make_icon.py` using only the Python standard library.
+Bug reports and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+For anything security-related, please read [SECURITY.md](SECURITY.md) first.
 
 ## License
 
-MIT
+[MIT](LICENSE) © susunola
